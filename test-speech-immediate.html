@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Immédiat - Synthèse Vocale</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f0f0f0; }
+        .test-box { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button { padding: 12px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .critical { background: #ff4444; color: white; font-size: 18px; }
+        .info { background: #4CAF50; color: white; }
+        .warn { background: #ff9800; color: white; }
+        #status { margin-top: 20px; padding: 15px; background: #e8f5e8; border-left: 4px solid #4CAF50; }
+        #logs { background: #f8f8f8; padding: 15px; margin-top: 20px; max-height: 400px; overflow-y: auto; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>🔧 TEST IMMÉDIAT - SYNTHÈSE VOCALE SILENCIEUSE</h1>
+    
+    <div class="test-box">
+        <h2>⚡ TESTS CRITIQUES</h2>
+        <button class="critical" onclick="emergencyTest()">🚨 TEST D'URGENCE</button>
+        <button class="info" onclick="fullDiagnostic()">🔍 DIAGNOSTIC COMPLET</button>
+        <button class="warn" onclick="forceUnlock()">🔓 FORCER DÉVERROUILLAGE</button>
+        <button class="info" onclick="testAllVoices()">🎤 TESTER TOUTES VOIX</button>
+    </div>
+
+    <div id="status">
+        <strong>Status:</strong> <span id="status-text">Prêt pour test</span>
+    </div>
+
+    <div id="logs">
+        <div><strong>LOGS:</strong></div>
+    </div>
+
+    <script>
+        // Logger central
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('logs');
+            const color = type === 'error' ? 'red' : type === 'warn' ? 'orange' : type === 'success' ? 'green' : 'black';
+            logDiv.innerHTML += `<div style="color: ${color}">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function setStatus(text, type = 'info') {
+            document.getElementById('status-text').textContent = text;
+            document.getElementById('status').style.background = 
+                type === 'error' ? '#ffebee' : 
+                type === 'success' ? '#e8f5e8' : 
+                type === 'warn' ? '#fff3e0' : '#e8f5e8';
+        }
+
+        // TEST D'URGENCE - Solution la plus simple
+        async function emergencyTest() {
+            setStatus('🚨 TEST D\'URGENCE EN COURS...', 'warn');
+            log('🚨 DÉBUT TEST D\'URGENCE', 'warn');
+
+            try {
+                // 1. Forcer AudioContext
+                log('1️⃣ Activation AudioContext...');
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                const audioCtx = new AudioCtx();
+                
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
+                    log('✅ AudioContext reprend: ' + audioCtx.state, 'success');
+                } else {
+                    log('✅ AudioContext déjà actif: ' + audioCtx.state, 'success');
+                }
+
+                // 2. Test beep audio
+                log('2️⃣ Test beep audio...');
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.frequency.value = 440;
+                gainNode.gain.value = 0.1;
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.2);
+                log('📢 Beep envoyé (si pas de son = problème système)', 'warn');
+
+                // 3. Force speech avec maximum volume
+                log('3️⃣ Test synthèse MAXIMUM...');
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance('ATTENTION TEST AUDIO MAXIMUM VOLUME');
+                utterance.volume = 1.0;
+                utterance.rate = 0.5;
+                utterance.pitch = 1.5;
+                utterance.lang = 'fr-FR';
+
+                // Forcer une voix locale si disponible
+                const voices = window.speechSynthesis.getVoices();
+                const localVoice = voices.find(v => v.localService) || voices[0];
+                if (localVoice) {
+                    utterance.voice = localVoice;
+                    log('🎤 Voix forcée: ' + localVoice.name + ' (local: ' + localVoice.localService + ')');
+                }
+
+                let started = false;
+                utterance.onstart = () => {
+                    started = true;
+                    log('✅ SYNTHÈSE DÉMARRÉE!', 'success');
+                    setStatus('✅ SYNTHÈSE ACTIVE - ÉCOUTEZ!', 'success');
+                };
+
+                utterance.onend = () => {
+                    log('✅ SYNTHÈSE TERMINÉE', 'success');
+                    setStatus('✅ Test d\'urgence terminé', 'success');
+                };
+
+                utterance.onerror = (e) => {
+                    log('❌ ERREUR: ' + e.error, 'error');
+                    setStatus('❌ Erreur synthèse: ' + e.error, 'error');
+                };
+
+                window.speechSynthesis.speak(utterance);
+
+                // Timeout si pas de démarrage
+                setTimeout(() => {
+                    if (!started) {
+                        log('⚠️ TIMEOUT: Synthèse n\'a pas démarré en 3 secondes', 'error');
+                        setStatus('❌ PROBLÈME: Synthèse silencieuse confirmée', 'error');
+                    }
+                }, 3000);
+
+            } catch (error) {
+                log('❌ EXCEPTION TEST D\'URGENCE: ' + error.message, 'error');
+                setStatus('❌ Erreur critique', 'error');
+            }
+        }
+
+        // DIAGNOSTIC COMPLET
+        async function fullDiagnostic() {
+            setStatus('🔍 Diagnostic en cours...', 'warn');
+            log('🔍 DÉBUT DIAGNOSTIC COMPLET', 'warn');
+
+            // Info système
+            log('🖥️ SYSTÈME:');
+            log('  Platform: ' + navigator.platform);
+            log('  UserAgent: ' + navigator.userAgent);
+            log('  Language: ' + navigator.language);
+
+            // AudioContext
+            log('🔊 AUDIO CONTEXT:');
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioCtx();
+                log('  Supported: ✅');
+                log('  State: ' + ctx.state);
+                if (ctx.state === 'suspended') {
+                    await ctx.resume();
+                    log('  Resumed: ✅');
+                }
+                ctx.close();
+            } catch (e) {
+                log('  Error: ' + e.message, 'error');
+            }
+
+            // SpeechSynthesis
+            log('🎤 SPEECH SYNTHESIS:');
+            log('  Supported: ' + ('speechSynthesis' in window ? '✅' : '❌'));
+            log('  Speaking: ' + window.speechSynthesis.speaking);
+            log('  Pending: ' + window.speechSynthesis.pending);
+            log('  Paused: ' + window.speechSynthesis.paused);
+
+            // Voix
+            const voices = window.speechSynthesis.getVoices();
+            log('🎵 VOIX DISPONIBLES: ' + voices.length);
+            voices.forEach((voice, i) => {
+                log(`  ${i}: ${voice.name} (${voice.lang}) - ${voice.localService ? 'LOCAL' : 'REMOTE'}`);
+            });
+
+            setStatus('📊 Diagnostic terminé - voir logs', 'success');
+        }
+
+        // FORCER DÉVERROUILLAGE
+        async function forceUnlock() {
+            setStatus('🔓 Tentative de déverrouillage...', 'warn');
+            log('🔓 FORCE UNLOCK SEQUENCE', 'warn');
+
+            try {
+                // Multiple unlock techniques
+                log('1. Click context activation...');
+                document.body.click();
+
+                log('2. AudioContext unlock...');
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioCtx();
+                await ctx.resume();
+                
+                const oscillator = ctx.createOscillator();
+                const gain = ctx.createGain();
+                oscillator.connect(gain);
+                gain.connect(ctx.destination);
+                gain.gain.value = 0.001; // Très faible
+                oscillator.start();
+                oscillator.stop(ctx.currentTime + 0.01);
+
+                log('3. Speech unlock sequence...');
+                window.speechSynthesis.cancel();
+                
+                // Séquence de mini-utterances
+                for (let i = 0; i < 3; i++) {
+                    const testUtterance = new SpeechSynthesisUtterance('test');
+                    testUtterance.volume = 0.01;
+                    testUtterance.rate = 10;
+                    window.speechSynthesis.speak(testUtterance);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+
+                window.speechSynthesis.cancel();
+
+                log('4. Final test...');
+                const finalTest = new SpeechSynthesisUtterance('Déverrouillage terminé, test final');
+                finalTest.volume = 0.8;
+                finalTest.rate = 1.0;
+                window.speechSynthesis.speak(finalTest);
+
+                setStatus('🔓 Déverrouillage tenté', 'success');
+
+            } catch (error) {
+                log('❌ Erreur déverrouillage: ' + error.message, 'error');
+                setStatus('❌ Échec déverrouillage', 'error');
+            }
+        }
+
+        // TEST TOUTES LES VOIX
+        async function testAllVoices() {
+            setStatus('🎤 Test de toutes les voix...', 'warn');
+            log('🎤 TEST TOUTES LES VOIX', 'warn');
+
+            const voices = window.speechSynthesis.getVoices();
+            
+            for (let i = 0; i < Math.min(voices.length, 5); i++) { // Limite à 5
+                const voice = voices[i];
+                log(`Testing voice ${i}: ${voice.name}`);
+                
+                const utterance = new SpeechSynthesisUtterance(`Test voix ${i} ${voice.name}`);
+                utterance.voice = voice;
+                utterance.volume = 0.7;
+                utterance.rate = 1.2; // Plus rapide
+
+                utterance.onstart = () => log(`✅ Voix ${i} FONCTIONNE: ${voice.name}`, 'success');
+                utterance.onerror = (e) => log(`❌ Voix ${i} ERREUR: ${e.error}`, 'error');
+
+                window.speechSynthesis.speak(utterance);
+                
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Pause entre tests
+            }
+
+            setStatus('🎤 Test voix terminé', 'success');
+        }
+
+        // Auto-load voices
+        window.onload = () => {
+            log('🚀 PAGE CHARGÉE - Initialisation...');
+            
+            // Force voices load
+            window.speechSynthesis.getVoices();
+            
+            if ('onvoiceschanged' in window.speechSynthesis) {
+                window.speechSynthesis.onvoiceschanged = () => {
+                    log('📢 Voix chargées: ' + window.speechSynthesis.getVoices().length);
+                };
+            }
+
+            log('✅ Prêt pour tests');
+            setStatus('✅ Prêt - Cliquez sur TEST D\'URGENCE', 'success');
+        };
+    </script>
+</body>
+</html>

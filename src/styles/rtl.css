@@ -1,0 +1,325 @@
+/* RTL (Right-to-Left) Support for Arabic Language */
+
+/* Base RTL styles */
+html.rtl {
+  direction: rtl;
+}
+
+html.rtl body {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Typography for Arabic */
+html.rtl {
+  font-family: 'Amiri', 'Noto Sans Arabic', 'Arial', sans-serif;
+}
+
+/* Layout adjustments */
+html.rtl .flex.space-x-2 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+  margin-right: calc(0.5rem * var(--tw-space-x-reverse));
+  margin-left: calc(0.5rem * calc(1 - var(--tw-space-x-reverse)));
+}
+
+html.rtl .flex.space-x-3 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+  margin-right: calc(0.75rem * var(--tw-space-x-reverse));
+  margin-left: calc(0.75rem * calc(1 - var(--tw-space-x-reverse)));
+}
+
+html.rtl .flex.space-x-4 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 1;
+  margin-right: calc(1rem * var(--tw-space-x-reverse));
+  margin-left: calc(1rem * calc(1 - var(--tw-space-x-reverse)));
+}
+
+/* Navigation RTL */
+html.rtl .nav-item {
+  text-align: right;
+}
+
+/* Buttons and inputs RTL */
+html.rtl input[type="text"], 
+html.rtl input[type="email"], 
+html.rtl textarea {
+  text-align: right;
+  padding-left: 1rem;
+  padding-right: 0.75rem;
+}
+
+html.rtl button {
+  text-align: center;
+}
+
+/* Icons RTL - flip horizontally for directional icons */
+html.rtl .icon-flip {
+  transform: scaleX(-1);
+}
+
+/* Chat interface RTL */
+html.rtl .chat-message.user {
+  margin-left: 0;
+  margin-right: 2rem;
+  text-align: right;
+}
+
+html.rtl .chat-message.assistant {
+  margin-right: 0;
+  margin-left: 2rem;
+  text-align: right;
+}
+
+html.rtl .chat-bubble {
+  border-radius: 1.5rem 1.5rem 0.25rem 1.5rem;
+}
+
+html.rtl .chat-bubble.user {
+  border-radius: 1.5rem 1.5rem 1.5rem 0.25rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+/* Avatar selector RTL */
+html.rtl .avatar-card {
+  text-align: right;
+}
+
+html.rtl .avatar-description {
+  text-align: right;
+}
+
+/* Modal RTL */
+html.rtl .modal-header {
+  text-align: right;
+}
+
+html.rtl .modal-content {
+  text-align: right;
+}
+
+/* Form elements RTL */
+html.rtl label {
+  text-align: right;
+}
+
+html.rtl .form-group {
+  text-align: right;
+}
+
+/* Arabic text specific styles */
+html.rtl .arabic-text {
+  font-family: 'Amiri', 'Noto Sans Arabic', 'Times New Roman', serif;
+  font-size: 1.1em;
+  line-height: 1.8;
+  letter-spacing: normal;
+}
+
+html.rtl .arabic-heading {
+  font-family: 'Amiri', 'Noto Sans Arabic', 'Times New Roman', serif;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+/* Darija/Moroccan Arabic specific */
+html.rtl .darija-text {
+  font-family: 'Noto Sans Arabic', 'Arial', sans-serif;
+  font-size: 1em;
+  line-height: 1.7;
+}
+
+/* Avatar specialization badges RTL */
+html.rtl .specialization-badge {
+  margin-right: 0;
+  margin-left: 0.5rem;
+}
+
+/* Settings panel RTL */
+html.rtl .settings-panel {
+  text-align: right;
+}
+
+html.rtl .settings-label {
+  text-align: right;
+  padding-right: 0;
+  padding-left: 0.5rem;
+}
+
+/* Notification RTL */
+html.rtl .notification {
+  text-align: right;
+}
+
+html.rtl .notification-title {
+  text-align: right;
+}
+
+/* Language selector RTL */
+html.rtl .language-option {
+  text-align: right;
+}
+
+/* Voice controls RTL */
+html.rtl .voice-controls {
+  direction: ltr; /* Keep controls in LTR for consistency */
+}
+
+/* Progress bars RTL */
+html.rtl .progress-bar {
+  direction: ltr; /* Keep progress direction consistent */
+}
+
+/* Tables RTL */
+html.rtl table {
+  direction: rtl;
+}
+
+html.rtl th,
+html.rtl td {
+  text-align: right;
+}
+
+/* Tooltips RTL */
+html.rtl .tooltip {
+  text-align: right;
+}
+
+/* Breadcrumbs RTL */
+html.rtl .breadcrumb {
+  direction: rtl;
+}
+
+html.rtl .breadcrumb-separator {
+  transform: scaleX(-1);
+}
+
+/* Dropdown menus RTL */
+html.rtl .dropdown-menu {
+  right: 0;
+  left: auto;
+  text-align: right;
+}
+
+/* Sidebar RTL */
+html.rtl .sidebar {
+  right: 0;
+  left: auto;
+}
+
+/* Fixed positioning RTL */
+html.rtl .fixed-right {
+  right: auto;
+  left: 1rem;
+}
+
+html.rtl .fixed-left {
+  left: auto;
+  right: 1rem;
+}
+
+/* Responsive RTL adjustments */
+@media (max-width: 768px) {
+  html.rtl .mobile-menu {
+    right: 0;
+    left: auto;
+  }
+  
+  html.rtl .mobile-chat {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+}
+
+/* Animation adjustments for RTL */
+html.rtl .slide-in-right {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+html.rtl .slide-in-left {
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Cultural color themes for Moroccan avatars */
+html.rtl .theme-moroccan {
+  --primary-color: #D97706; /* Moroccan orange */
+  --secondary-color: #DC2626; /* Moroccan red */
+  --accent-color: #7C3AED; /* Royal purple */
+  --success-color: #059669; /* Moroccan green */
+}
+
+/* Arabic font loading */
+@import url('https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap');
+
+/* Ensure proper Arabic text rendering */
+html.rtl .arabic-content {
+  unicode-bidi: bidi-override;
+  direction: rtl;
+  text-align: right;
+}
+
+/* Mixed content (Arabic + French/English) */
+html.rtl .mixed-content {
+  unicode-bidi: embed;
+}
+
+html.rtl .ltr-inline {
+  direction: ltr;
+  display: inline-block;
+  unicode-bidi: embed;
+}
+
+/* Voice player RTL adjustments */
+html.rtl .voice-player {
+  direction: ltr; /* Keep audio controls LTR */
+}
+
+html.rtl .voice-player-label {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Loading states RTL */
+html.rtl .loading-spinner {
+  /* Keep spinner direction neutral */
+}
+
+html.rtl .loading-text {
+  text-align: right;
+}
+
+/* Cultural avatars specific styling */
+html.rtl .avatar-moroccan {
+  border: 2px solid #D97706;
+  background: linear-gradient(135deg, #FEF3C7, #F59E0B);
+}
+
+html.rtl .avatar-moroccan .avatar-name {
+  color: #92400E;
+  font-weight: 600;
+}
+
+html.rtl .avatar-moroccan .avatar-specialty {
+  color: #B45309;
+  font-style: italic;
+}

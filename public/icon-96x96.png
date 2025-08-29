@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="192" height="192" rx="24" fill="#3B82F6"/>
+  <path d="M96 48C70.8 48 50.4 68.4 50.4 93.6C50.4 118.8 70.8 139.2 96 139.2C121.2 139.2 141.6 118.8 141.6 93.6C141.6 68.4 121.2 48 96 48ZM96 129.6C76.1 129.6 60 113.5 60 93.6C60 73.7 76.1 57.6 96 57.6C115.9 57.6 132 73.7 132 93.6C132 113.5 115.9 129.6 96 129.6Z" fill="white"/>
+  <circle cx="84" cy="84" r="6" fill="white"/>
+  <circle cx="108" cy="84" r="6" fill="white"/>
+  <path d="M82 108C84.8 112.4 89.6 115.2 96 115.2C102.4 115.2 107.2 112.4 110 108" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <text x="96" y="165" text-anchor="middle" fill="white" font-family="Arial" font-size="16" font-weight="bold">MindEase</text>
+</svg>
