@@ -9,13 +9,21 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Types de la base de données
-export interface User {
+// Types de la base de données - Profil utilisateur étendu
+export interface UserProfile {
   id: string;
   email: string;
-  created_at: string;
+  full_name?: string;
   preferred_ai_model?: 'gemini' | 'openai' | 'auto';
   preferred_mode?: 'text' | 'voice' | 'hybrid';
+  created_at: string;
+  updated_at: string;
+  timezone?: string;
+  language?: string;
+  onboarding_completed?: boolean;
+  therapeutic_profile_id?: string;
+  avatar_preferences?: any;
+  privacy_settings?: any;
 }
 
 export interface Session {

@@ -1,10 +1,25 @@
-import { GoogleGenAI } from '@google/genai';
-import GoogleGenAIClient from './GoogleGenAIClient';
-import { Avatar, VoiceConfig, AvatarInteraction } from '../types';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// Interfaces simplifiées pour usage conversationnel
+interface ConversationalTTSRequest {
+  text: string;
+  voiceId: string;
+  language?: string;
+  emotionalTone?: string;
+  speakingRate?: number;
+}
+
+interface ConversationalTTSResponse {
+  audioUrl: string;
+  audioDuration: number;
+  audioBlob: Blob;
+  cacheKey: string;
+}
+
+// Interface pour compatibilité avec l'existant
 interface TTSRequest {
   text: string;
-  voiceConfig: VoiceConfig;
+  voiceConfig: any;
   avatarId: string;
   conversationId: string;
 }
@@ -24,12 +39,44 @@ interface CachedAudio {
   expiresAt: string;
 }
 
+/**
+ * SERVICE TTS GEMINI AMÉLIORÉ POUR CONVERSATIONS THÉRAPEUTIQUES
+ * Synthèse vocale avec voix expertes spécialisées et cache intelligent
+ */
 export class GeminiTTSService {
   private static instance: GeminiTTSService;
-  private genAI: GoogleGenAI | null = null;
+  private genAI: GoogleGenerativeAI | null = null;
   private audioCache: Map<string, CachedAudio> = new Map();
   private readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
-  private readonly MAX_CACHE_SIZE = 100; // Maximum number of cached audio files
+  private readonly MAX_CACHE_SIZE = 100;
+
+  // Configuration voix expertes thérapeutiques
+  private readonly EXPERT_VOICES = {
+    'dr_sarah_empathie': {
+      gemini_voice_id: 'umbriel',
+      language_code: 'fr-FR',
+      emotional_tone: 'empathetic',
+      speaking_rate: 1.0,
+      pitch: 0.0,
+      volume_gain_db: 2.0
+    },
+    'dr_alex_mindfulness': {
+      gemini_voice_id: 'aoede',
+      language_code: 'fr-FR',
+      emotional_tone: 'calming',
+      speaking_rate: 0.8,
+      pitch: -2.0,
+      volume_gain_db: 1.0
+    },
+    'dr_aicha_culturelle': {
+      gemini_voice_id: 'despina',
+      language_code: 'fr-FR',
+      emotional_tone: 'warm',
+      speaking_rate: 0.9,
+      pitch: 1.0,
+      volume_gain_db: 2.5
+    }
+  };
 
   static getInstance(): GeminiTTSService {
     if (!GeminiTTSService.instance) {
@@ -45,27 +92,58 @@ export class GeminiTTSService {
 
   private initializeGeminiAI(): void {
     try {
-      // Utiliser le client centralisé comme les autres services
-      this.genAI = GoogleGenAIClient.getInstance();
-      console.log('✅ GeminiTTSService initialized with centralized client');
+      const apiKey = import.meta.env.VITE_GOOGLE_GENAI_API_KEY;
+      if (!apiKey) {
+        console.warn('⚠️ Google GenAI API key not found, falling back to Web Speech API');
+        return;
+      }
+      
+      this.genAI = new GoogleGenerativeAI(apiKey);
+      console.log('✅ GeminiTTSService initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize GeminiTTSService:', error);
       console.warn('⚠️ GeminiTTSService will fallback to Web Speech API');
     }
   }
 
-  // Main TTS generation method
-  async generateSpeech(request: TTSRequest): Promise<TTSResponse> {
-    if (!this.genAI) {
-      throw new Error('Google Generative AI not initialized. Check your API key.');
-    }
+  /**
+   * GÉNÉRATION VOCALE SIMPLIFIÉE POUR CONVERSATIONS
+   * Interface simple pour usage dans ConversationalTherapySession
+   */
+  async generateSpeech(text: string, voiceId: string = 'umbriel'): Promise<string | null> {
+    try {
+      // Configuration voix selon expert
+      const expertConfig = this.EXPERT_VOICES[voiceId as keyof typeof this.EXPERT_VOICES] || 
+                          this.EXPERT_VOICES['dr_sarah_empathie'];
 
-    const cacheKey = this.generateCacheKey(request.text, request.voiceConfig, request.avatarId);
+      const request: ConversationalTTSRequest = {
+        text,
+        voiceId: expertConfig.gemini_voice_id,
+        language: expertConfig.language_code,
+        emotionalTone: expertConfig.emotional_tone,
+        speakingRate: expertConfig.speaking_rate
+      };
+
+      const response = await this.generateConversationalSpeech(request);
+      return response.audioUrl;
+
+    } catch (error) {
+      console.error('Erreur génération vocale simple:', error);
+      return null;
+    }
+  }
+
+  /**
+   * GÉNÉRATION VOCALE CONVERSATIONNELLE AVANCÉE
+   * Avec gestion cache et fallback Web Speech API
+   */
+  async generateConversationalSpeech(request: ConversationalTTSRequest): Promise<ConversationalTTSResponse> {
+    const cacheKey = this.generateConversationalCacheKey(request);
     
-    // Check cache first
+    // Vérifier cache
     const cachedAudio = this.getCachedAudio(cacheKey);
     if (cachedAudio) {
-      console.log('🎵 Using cached audio for avatar:', request.avatarId);
+      console.log('🎵 Audio récupéré du cache:', request.voiceId);
       return {
         audioUrl: cachedAudio.audioUrl,
         audioDuration: cachedAudio.audioDuration,
@@ -74,102 +152,235 @@ export class GeminiTTSService {
       };
     }
 
-    try {
-      console.log('🎙️ Generating new speech with Gemini TTS for avatar:', request.avatarId);
-      
-      // Process text for optimal TTS
-      const processedText = this.preprocessTextForTTS(request.text, request.voiceConfig);
-      
-      // Use Gemini 2.5 Pro Preview for TTS generation
-      const model = this.genAI.getGenerativeModel({ 
-        model: "gemini-2.5-pro-preview-tts",
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-        }
-      });
+    // Essayer génération Gemini TTS
+    if (this.genAI) {
+      try {
+        return await this.generateGeminiSpeech(request, cacheKey);
+      } catch (error) {
+        console.log('🔄 Gemini TTS échec, passage Web Speech API:', error.message);
+      }
+    }
 
-      // Create TTS request with voice configuration
+    // Fallback Web Speech API
+    return await this.generateWebSpeechAPI(request, cacheKey);
+  }
+
+  /**
+   * GÉNÉRATION VOCALE GEMINI (EXPÉRIMENTAL)
+   * Utilise l'API Gemini pour synthèse vocale de haute qualité
+   */
+  private async generateGeminiSpeech(request: ConversationalTTSRequest, cacheKey: string): Promise<ConversationalTTSResponse> {
+    console.log('🎙️ Génération vocale Gemini TTS:', request.voiceId);
+    
+    try {
+      // Prétraitement du texte pour optimiser la synthèse
+      const processedText = this.preprocessTextForConversationalTTS(request.text, request.emotionalTone);
+      
+      // Note: L'API Gemini TTS est encore expérimentale
+      // Cette implémentation est conceptuelle et peut nécessiter ajustements
       const ttsPayload = {
         input: { text: processedText },
         voice: {
-          languageCode: request.voiceConfig.language_code,
-          name: request.voiceConfig.voice_id,
-          ssmlGender: this.inferGenderFromVoiceId(request.voiceConfig.voice_id)
+          languageCode: request.language || 'fr-FR',
+          name: request.voiceId,
+          ssmlGender: this.inferGenderFromVoiceId(request.voiceId)
         },
         audioConfig: {
           audioEncoding: 'MP3',
-          speakingRate: request.voiceConfig.speaking_rate,
-          pitch: request.voiceConfig.pitch,
-          volumeGainDb: request.voiceConfig.volume_gain_db,
-          effectsProfileId: [this.getAudioProfile(request.voiceConfig.emotional_tone)]
+          speakingRate: request.speakingRate || 1.0,
+          pitch: 0.0,
+          volumeGainDb: 2.0,
+          effectsProfileId: [this.getAudioProfile(request.emotionalTone || 'empathetic')]
         }
       };
 
-      // Note: Gemini 2.5 Pro Preview TTS is still in development
-      // This is a conceptual implementation - actual API may differ
+      // Appel API Gemini TTS (conceptuel)
       const response = await this.callGeminiTTS(ttsPayload);
       
-      if (!response || !response.audioContent) {
-        throw new Error('No audio content received from Gemini TTS');
+      if (!response?.audioContent) {
+        throw new Error('Pas de contenu audio reçu de Gemini TTS');
       }
 
-      // Convert base64 audio to blob
+      // Conversion base64 vers blob
       const audioBlob = this.base64ToBlob(response.audioContent, 'audio/mp3');
       const audioUrl = URL.createObjectURL(audioBlob);
       const audioDuration = await this.getAudioDuration(audioBlob);
 
-      const ttsResponse: TTSResponse = {
+      const ttsResponse: ConversationalTTSResponse = {
         audioUrl,
         audioDuration,
         audioBlob,
         cacheKey
       };
 
-      // Cache the result
+      // Mise en cache
       this.cacheAudio(cacheKey, ttsResponse);
 
-      console.log(`✅ Speech generated successfully for avatar ${request.avatarId} (${audioDuration}s)`);
+      console.log(`✅ Gemini TTS réussi (${audioDuration}s)`);
       return ttsResponse;
 
     } catch (error) {
-      console.error('❌ Gemini TTS generation failed:', error);
+      console.error('❌ Échec génération Gemini TTS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * GÉNÉRATION VOCALE WEB SPEECH API (FALLBACK)
+   * Solution de secours utilisant l'API native du navigateur
+   */
+  private async generateWebSpeechAPI(request: ConversationalTTSRequest, cacheKey: string): Promise<ConversationalTTSResponse> {
+    console.log('🔊 Génération Web Speech API:', request.voiceId);
+
+    return new Promise((resolve, reject) => {
+      if (!('speechSynthesis' in window)) {
+        reject(new Error('Synthèse vocale non supportée par le navigateur'));
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(request.text);
       
-      // Fallback to browser TTS
-      return await this.fallbackToWebSpeechAPI(request);
-    }
-  }
+      // Sélection voix selon langue et préférences
+      const voices = speechSynthesis.getVoices();
+      const preferredVoice = voices.find(voice => 
+        voice.lang.startsWith(request.language?.split('-')[0] || 'fr') &&
+        (voice.name.toLowerCase().includes('google') || voice.name.toLowerCase().includes('microsoft'))
+      ) || voices.find(voice => voice.lang.startsWith('fr'));
+      
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+        console.log('🎤 Voix sélectionnée:', preferredVoice.name);
+      }
 
-  // Conceptual Gemini TTS API call (actual implementation may vary)
-  private async callGeminiTTS(payload: any): Promise<any> {
-    // This is a conceptual implementation
-    // The actual Gemini 2.5 Pro Preview TTS API may have different endpoints and parameters
-    // Note: This service should be replaced by GoogleGenAITTSServiceV2 for production use
-    
-    const apiKey = import.meta.env.VITE_GOOGLE_GENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('Google GenAI API key not configured');
-    }
-    
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:synthesizeSpeech', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(payload)
+      // Configuration vocale
+      utterance.rate = request.speakingRate || 1.0;
+      utterance.pitch = this.adjustPitchForEmotion(request.emotionalTone || 'neutral');
+      utterance.volume = 0.9;
+
+      // Simulation enregistrement pour caching
+      let audioChunks: Blob[] = [];
+
+      // Fallback: générer URL blob directement sans enregistrement
+      utterance.onstart = () => {
+        console.log('🎵 Début synthèse vocale Web Speech API');
+      };
+
+      utterance.onend = () => {
+        // Comme Web Speech API ne permet pas d'enregistrer facilement,
+        // nous créons un blob vide pour la compatibilité cache
+        const audioBlob = new Blob([''], { type: 'audio/wav' });
+        const audioUrl = `data:audio/wav;base64,`; // URL fictive vide pour cache
+        
+        const response: ConversationalTTSResponse = {
+          audioUrl: audioUrl,
+          audioDuration: this.estimateDuration(request.text),
+          audioBlob: audioBlob,
+          cacheKey
+        };
+
+        // Note: Web Speech API joue directement, pas de cache réel
+        console.log('✅ Web Speech API terminé');
+        resolve(response);
+      };
+
+      utterance.onerror = (error) => {
+        console.error('❌ Erreur Web Speech API:', error);
+        reject(new Error('Échec synthèse vocale'));
+      };
+
+      // Lancement synthèse
+      speechSynthesis.speak(utterance);
     });
-
-    if (!response.ok) {
-      throw new Error(`Gemini TTS API error: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
   }
 
-  // Text preprocessing for better TTS output
-  private preprocessTextForTTS(text: string, voiceConfig: VoiceConfig): string {
+  // ========================================
+  // MÉTHODES PRIVÉES - UTILITAIRES TTS
+  // ========================================
+
+  private generateConversationalCacheKey(request: ConversationalTTSRequest): string {
+    const keyString = `${request.text}_${request.voiceId}_${request.speakingRate || 1.0}_${request.emotionalTone || 'neutral'}`;
+    
+    // Encodage sécurisé pour Unicode (alternative à btoa)
+    try {
+      // Convertir en Base64 de manière sécurisée pour Unicode
+      const encoded = btoa(encodeURIComponent(keyString).replace(/%([0-9A-F]{2})/g, (match, p1) => {
+        return String.fromCharCode(parseInt(p1, 16));
+      }));
+      return `conv_tts_${encoded.replace(/[^a-zA-Z0-9]/g, '').substring(0, 32)}`;
+    } catch (error) {
+      // Fallback: utiliser un hash simple si l'encodage échoue
+      console.warn('Fallback vers hash simple pour cache key:', error);
+      const simpleHash = this.generateSimpleHash(keyString);
+      return `conv_tts_${simpleHash}`;
+    }
+  }
+
+  private generateSimpleHash(input: string): string {
+    // Génère un hash simple et reproductible pour les clés de cache
+    let hash = 0;
+    for (let i = 0; i < input.length; i++) {
+      const char = input.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Conversion en entier 32-bit
+    }
+    // Convertir en string hexadécimal et limiter la longueur
+    return Math.abs(hash).toString(36).substring(0, 16);
+  }
+
+  private preprocessTextForConversationalTTS(text: string, emotionalTone?: string): string {
+    let processedText = text;
+
+    // Ajustements selon ton émotionnel
+    switch (emotionalTone) {
+      case 'calming':
+        processedText = processedText.replace(/\./g, '... ');
+        processedText = processedText.replace(/,/g, ', ');
+        break;
+      case 'empathetic':
+        processedText = processedText.replace(/\?/g, ' ? ');
+        break;
+      case 'warm':
+        processedText = processedText.replace(/!/g, ' ! ');
+        break;
+    }
+
+    // Nettoyer caractères problématiques
+    processedText = processedText.replace(/[""]/g, '"');
+    processedText = processedText.replace(/['']/g, "'");
+    
+    return processedText;
+  }
+
+  private adjustPitchForEmotion(emotionalTone: string): number {
+    const pitchMap = {
+      'calming': 0.8,
+      'empathetic': 0.9,
+      'warm': 1.1,
+      'energetic': 1.2,
+      'neutral': 1.0
+    };
+    return pitchMap[emotionalTone as keyof typeof pitchMap] || 1.0;
+  }
+
+  private estimateDuration(text: string): number {
+    // Estimation basée sur nombre de mots (~180 mots/minute)
+    const wordCount = text.split(/\s+/).length;
+    return Math.max(1, Math.round(wordCount / 3)); // Plus conservateur pour TTS
+  }
+
+  // Méthode conceptuelle Gemini TTS API (peut varier selon implémentation réelle)
+  private async callGeminiTTS(payload: any): Promise<any> {
+    // Note: Gemini TTS n'est pas encore disponible publiquement
+    // Cette implémentation est désactivée temporairement
+    throw new Error('Gemini TTS not yet available - using Web Speech API fallback');
+  }
+
+  // ========================================
+  // MÉTHODES HÉRITÉES (COMPATIBILITÉ ANCIENNE API)
+  // ========================================
+
+  // Text preprocessing for better TTS output (version héritée)
+  private preprocessTextForTTS(text: string, voiceConfig: any): string {
     let processedText = text;
 
     // Add emphasis to specific words
@@ -276,13 +487,14 @@ export class GeminiTTSService {
 
   // Utility methods
   private generateCacheKey(text: string, voiceConfig: VoiceConfig, avatarId: string): string {
-    const hash = btoa(
-      text + 
+    const keyData = text + 
       voiceConfig.voice_id + 
       voiceConfig.speaking_rate + 
       voiceConfig.pitch + 
-      avatarId
-    ).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+      avatarId;
+    
+    // Utiliser notre méthode de hash sécurisée au lieu de btoa
+    const hash = this.generateSimpleHash(keyData);
     
     return `tts_${avatarId}_${hash}`;
   }

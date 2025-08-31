@@ -1,130 +1,125 @@
-# 🛡️ Système de Sauvegarde MindEase AI
+# 🔄 SYSTÈME DE BACKUP MINDEASE AI
 
-## 🚀 Installation Rapide
+## 🚀 Utilisation Rapide
 
+### Créer une Sauvegarde Complète
 ```bash
-# Exécuter la configuration automatique
-./backup/scripts/quick-setup.sh
+./backup/backup-system.sh full
 ```
 
-## 📁 Structure
-
-```
-backup/
-├── 📋 GUIDE_BACKUP.md           # Guide complet (LIRE EN PREMIER)
-├── 📋 README.md                 # Ce fichier
-├── 📁 scripts/                  # Scripts de sauvegarde/restauration
-│   ├── 🔄 backup-database.sh    # Sauvegarde complète
-│   ├── 🔄 restore-backup.sh     # Restauration
-│   ├── ⏰ auto-backup-cron.sh   # Sauvegarde automatique
-│   └── ⚙️ quick-setup.sh        # Configuration rapide
-├── 📁 automated/                # Sauvegardes automatiques
-├── 📁 manual/                   # Sauvegardes manuelles
-│   └── 📋 manual-backup-checklist.md
-└── 📁 restore/                  # Zone de restauration temporaire
-```
-
-## ⚡ Commandes Essentielles
-
-### Sauvegarde Immédiate
+### Restaurer une Sauvegarde
 ```bash
-./backup/scripts/backup-database.sh
+./backup/restore-system.sh backup/backup_YYYYMMDD_HHMMSS.tar.gz full
 ```
-
-### Restauration
-```bash
-# Lister les backups disponibles
-ls -la backup/automated/*.tar.gz
-
-# Restaurer un backup
-./backup/scripts/restore-backup.sh BACKUP_FILE.tar.gz
-```
-
-### Sauvegarde Automatique
-```bash
-# Configuration cron quotidienne (2h00)
-echo "0 2 * * * $(pwd)/backup/scripts/auto-backup-cron.sh" | crontab -
-
-# Vérifier la configuration
-crontab -l
-
-# Voir les logs
-tail -f backup/automated/backup-cron.log
-```
-
-## 🔍 Monitoring
-
-### Vérifier les Backups Récents
-```bash
-# 5 derniers backups
-ls -laht backup/automated/*.tar.gz | head -5
-
-# Taille des backups
-du -sh backup/automated/*.tar.gz | tail -5
-```
-
-### Espace Disque
-```bash
-# Vérifier l'espace disponible
-df -h backup/
-
-# Nettoyer les anciens backups (garde les 7 derniers)
-find backup/automated/ -name "*.tar.gz" -mtime +7 -delete
-```
-
-## 📊 Ce qui est Sauvegardé
-
-### ✅ Automatiquement Inclus
-- 🗄️ **Schéma de base de données** (`supabase-schema.sql`)
-- ⚙️ **Configuration** (`.env`, `package.json`, `vite.config.ts`)
-- 💻 **Code source critique** (`src/services/`, `src/types/`, `src/contexts/`)
-- 📝 **Métadonnées** (date, type, instructions de restauration)
-
-### ⚠️ Non Inclus (Sauvegarde Manuelle Requise)
-- 🗄️ **Données Supabase** (doit être exporté depuis le Dashboard)
-- 🎨 **Assets complets** (`public/`, `src/components/` complet)
-- 📚 **Documentation** (fichiers `.md`)
-
-## 🆘 Support d'Urgence
-
-### Sauvegarde d'Urgence (2 minutes)
-```bash
-DATE=$(date +%Y%m%d_%H%M%S)
-mkdir -p backup/emergency/emergency-$DATE
-cp .env supabase-schema.sql backup/emergency/emergency-$DATE/
-cp -r src/services src/types backup/emergency/emergency-$DATE/
-tar -czf backup/emergency/emergency-$DATE.tar.gz backup/emergency/emergency-$DATE
-rm -rf backup/emergency/emergency-$DATE
-echo "✅ Sauvegarde d'urgence: backup/emergency/emergency-$DATE.tar.gz"
-```
-
-### Restauration d'Urgence
-```bash
-# 1. Arrêter l'application
-pkill -f "vite"
-
-# 2. Sauvegarder l'état actuel
-cp .env .env.backup-$(date +%Y%m%d)
-
-# 3. Restaurer avec le dernier backup
-LATEST=$(ls -t backup/automated/*.tar.gz | head -1)
-./backup/scripts/restore-backup.sh "$(basename "$LATEST")" --force
-
-# 4. Relancer
-npm run dev
-```
-
-## 📚 Documentation Complète
-
-**📖 LIRE LE GUIDE COMPLET :** [GUIDE_BACKUP.md](GUIDE_BACKUP.md)
-
-Le guide contient :
-- 🔧 Instructions détaillées de configuration
-- 📋 Procédures manuelles step-by-step
-- 🔍 Monitoring et maintenance
-- 🛠️ Dépannage des problèmes courants
-- ⚡ Commandes de référence rapide
 
 ---
 
-**🛡️ Votre application MindEase AI est maintenant protégée !**
+## 📁 Fichiers du Système
+
+- **`backup-system.sh`** - Script de sauvegarde principal
+- **`restore-system.sh`** - Script de restauration principal  
+- **`RESTORE-GUIDE.md`** - Guide détaillé complet
+- **`README.md`** - Ce fichier (aperçu rapide)
+
+---
+
+## 🛠️ Types de Sauvegarde
+
+| Type | Description | Commande |
+|------|-------------|----------|
+| **full** | Sauvegarde complète (recommandé) | `./backup-system.sh full` |
+| **db** | Base de données seulement | `./backup-system.sh db` |
+| **code** | Code application seulement | `./backup-system.sh code` |
+| **config** | Configuration seulement | `./backup-system.sh config` |
+
+---
+
+## 📋 Contenu des Sauvegardes
+
+### ✅ Inclus
+- 🗄️ **Base de données** - Schémas SQL, politiques RLS, scripts
+- 💻 **Code source** - src/, public/, package.json, configs
+- ⚙️ **Configuration** - .gitignore, README, templates
+- 📊 **Logs et métadonnées** - État du système, informations
+
+### ❌ Exclus (pour sécurité/taille)
+- `node_modules/` (réinstallé automatiquement)
+- `.git/` (historique git)
+- `dist/`, `.vite/` (fichiers générés)
+- **Clés API secrètes** (template .env fourni)
+
+---
+
+## ⚠️ Actions Manuelles Post-Restauration
+
+1. **Configurer les clés API**
+   ```bash
+   # Éditer .env avec vos clés
+   nano .env
+   ```
+
+2. **Restaurer la base de données**
+   ```sql
+   -- Dans Supabase SQL Editor :
+   \i database/schema.sql
+   \i database/rls-policies.sql
+   ```
+
+3. **Tester l'application**
+   ```
+   http://localhost:5173/
+   ```
+
+---
+
+## 🔍 Validation
+
+### Vérifier les Sauvegardes
+```bash
+# Lister les sauvegardes
+ls -la backup/backup_*.tar.gz
+
+# Vérifier l'intégrité
+tar -tzf backup/backup_YYYYMMDD_HHMMSS.tar.gz | head -10
+```
+
+### Test de Restauration
+```bash
+# Test sur une copie
+cp -r MindEase-AI MindEase-AI-TEST
+cd MindEase-AI-TEST
+./backup/restore-system.sh ../MindEase-AI/backup/backup_file.tar.gz full
+```
+
+---
+
+## 📞 Documentation Complète
+
+Pour plus de détails, consultez : **[RESTORE-GUIDE.md](./RESTORE-GUIDE.md)**
+
+- 📋 Procédures détaillées
+- 🚨 Dépannage d'urgence  
+- 🔧 Configuration avancée
+- ✅ Checklists complètes
+
+---
+
+## 🎯 Exemple d'Usage Typique
+
+```bash
+# 1. Sauvegarde avant mise à jour importante
+./backup/backup-system.sh full
+
+# 2. Développement/modifications...
+
+# 3. En cas de problème, restaurer
+./backup/restore-system.sh backup/backup_20250829_223000.tar.gz full
+
+# 4. Actions manuelles (clés API, SQL)
+
+# 5. Test et validation
+```
+
+---
+
+**🔄 Système de backup complet et sécurisé pour MindEase AI**

@@ -7,6 +7,7 @@
 
 import { supabase } from '../config/supabase';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { OpenAIClient } from './OpenAIClient';
 
 // Types pour l'IA thérapeutique
 export interface TherapeuticExpert {
@@ -64,10 +65,21 @@ export interface CrisisAlert {
  */
 export class TherapeuticAI {
   private genAI: GoogleGenerativeAI;
+  private openAIClient: OpenAIClient | null = null;
   private experts: Map<string, TherapeuticExpert>;
   
   constructor() {
     this.genAI = new GoogleGenerativeAI(import.meta.env.VITE_GOOGLE_GENAI_API_KEY || '');
+    
+    // Initialiser OpenAI client si disponible
+    try {
+      this.openAIClient = OpenAIClient.getInstance();
+      console.log('✅ OpenAI client initialisé comme fallback');
+    } catch (error) {
+      console.warn('⚠️ OpenAI client non disponible:', error.message);
+      this.openAIClient = null;
+    }
+    
     this.experts = new Map();
     this.initializeExperts();
   }
@@ -115,7 +127,7 @@ export class TherapeuticAI {
       );
       
       // 6. Générer réponse avec IA
-      const model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
+      const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const result = await model.generateContent(expertPrompt);
       const generatedResponse = result.response.text();
       
@@ -148,6 +160,19 @@ export class TherapeuticAI {
       
     } catch (error) {
       console.error('Erreur génération réponse thérapeutique:', error);
+      
+      // Gestion spécifique du quota Gemini épuisé
+      if (error.message?.includes('429') || error.message?.includes('quota')) {
+        console.warn('🚨 Quota Gemini API épuisé - tentative fallback OpenAI');
+        return this.tryOpenAIFallback(expertId, userMessage, context);
+      }
+      
+      // Autres erreurs réseau ou API
+      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        console.warn('🌐 Erreur réseau - tentative fallback OpenAI');
+        return this.tryOpenAIFallback(expertId, userMessage, context);
+      }
+      
       throw new Error('Impossible de générer une réponse thérapeutique appropriée');
     }
   }
@@ -608,6 +633,7 @@ Réponds de manière thérapeutique authentique, en utilisant tes techniques sp�
   ): Promise<void> {
     // Enregistrer interaction pour contexte futur
     const interaction = {
+      session_id: context.current_session?.id || context.current_session?.session_id,
       expert_id: expertId,
       user_message: userMessage,
       ai_response: response.content,
@@ -652,7 +678,7 @@ Reste dans ton rôle de thérapeute humain.
 MESSAGE: "${userMessage}"
 `;
     
-    const model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent(crisisPrompt);
     const crisisResponse = result.response.text();
     
@@ -825,7 +851,7 @@ Assure-toi de maintenir l'identité de ${expert.name} sans révéler de nature a
 `;
     
     try {
-      const model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
+      const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const result = await model.generateContent(correctionPrompt);
       return result.response.text();
     } catch (error) {
@@ -875,6 +901,365 @@ Assure-toi de maintenir l'identité de ${expert.name} sans révéler de nature a
     }
     
     return suggestions;
+  }
+
+  /**
+   * FALLBACK OPENAI QUAND GEMINI ÉPUISÉ
+   * Utilise OpenAI comme alternative intelligente avant les réponses prédéfinies
+   */
+  private async tryOpenAIFallback(
+    expertId: string,
+    userMessage: string,
+    context: TherapeuticContext
+  ): Promise<TherapeuticResponse> {
+    // Vérifier si OpenAI est disponible
+    if (!this.openAIClient || !this.openAIClient.isAvailable()) {
+      console.warn('🔄 OpenAI non disponible - basculement sur réponses prédéfinies');
+      return this.getFallbackTherapeuticResponse(expertId, userMessage, context);
+    }
+
+    try {
+      console.log('🤖 Tentative génération avec OpenAI...');
+      
+      const expert = this.experts.get(expertId);
+      if (!expert) {
+        throw new Error(`Expert ${expertId} introuvable`);
+      }
+
+      // Construire le contexte pour OpenAI
+      const contextString = this.buildContextForOpenAI(context, expert);
+      
+      // Générer la réponse avec OpenAI
+      const openAIResponse = await this.openAIClient.generateTherapeuticMessage(
+        expertId,
+        userMessage,
+        contextString
+      );
+
+      console.log('✅ Réponse générée avec succès via OpenAI');
+
+      // Formater la réponse au format TherapeuticResponse avec même richesse que Gemini
+      const detectedTechniques = this.analyzeUsedTechniques(openAIResponse, expert.therapeutic_techniques);
+      const therapeuticIntention = this.inferTherapeuticIntention(openAIResponse, userMessage);
+      const crisisLevel = await this.detectCrisisIndicators(userMessage, context);
+      
+      return {
+        content: openAIResponse,
+        emotional_tone: this.detectEmotionalTone(openAIResponse, expert.personality.tone),
+        therapeutic_intention: therapeuticIntention,
+        techniques_used: detectedTechniques.length > 0 ? detectedTechniques : expert.therapeutic_techniques.slice(0, 2),
+        followup_suggestions: await this.generateAdvancedFollowups(openAIResponse, context, expert),
+        crisis_indicators_detected: crisisLevel.severity !== 'low',
+        adaptation_notes: [
+          `Généré via OpenAI avec prompting avancé`,
+          `Expert: ${expert.name}`,
+          `Techniques détectées: ${detectedTechniques.join(', ')}`,
+          `Contexte culturel: ${context.cultural_context || 'universel'}`
+        ]
+      };
+
+    } catch (openAIError) {
+      console.error('❌ Échec fallback OpenAI:', openAIError);
+      console.warn('🔄 Basculement final sur réponses prédéfinies');
+      return this.getFallbackTherapeuticResponse(expertId, userMessage, context);
+    }
+  }
+
+  /**
+   * Construction du contexte pour OpenAI avec même qualité que Gemini
+   */
+  private buildContextForOpenAI(context: TherapeuticContext, expert: TherapeuticExpert): string {
+    // Construire un prompt aussi détaillé que celui de Gemini
+    const contextualPrompt = `
+Tu es ${expert.name}, ${expert.approach}.
+
+IDENTITÉ EXPERTE COMPLÈTE:
+- Spécialités: ${expert.specialties.join(', ')}
+- Personnalité: ${expert.personality.style}
+- Ton: ${expert.personality.tone}
+- Préférences communication: ${expert.personality.communication_preferences.join(', ')}
+- Sensibilités culturelles: ${expert.personality.cultural_sensitivity.join(', ')}
+
+CONTEXTE THÉRAPEUTIQUE ACTUEL:
+- État émotionnel client: ${context.emotional_state || 'En évaluation'}
+- Contexte culturel: ${context.cultural_context || 'Universel'}
+- Langue de session: ${context.language || 'fr'}
+${context.user_profile?.therapeutic_goals ? `- Objectifs thérapeutiques: ${context.user_profile.therapeutic_goals.join(', ')}` : ''}
+
+TECHNIQUES THÉRAPEUTIQUES DISPONIBLES:
+- Techniques principales: ${expert.therapeutic_techniques.join(', ')}
+${Object.entries(expert.intervention_strategies || {}).map(([situation, techniques]) => 
+  `- Stratégies ${situation}: ${techniques.join(', ')}`
+).join('\n')}
+
+HISTORIQUE CONVERSATIONNEL:
+${context.recent_interactions && context.recent_interactions.length > 0 ? 
+  context.recent_interactions.slice(-3).map((interaction, i) => 
+    `${interaction.sender}: "${interaction.content}"`
+  ).join('\n') : 
+  'Première interaction de cette session'
+}
+
+CONFIGURATION VOCALE ET STYLE:
+- Voix Gemini: ${expert.voice_config?.gemini_voice_id || 'Standard'}
+- Accent: ${expert.voice_config?.accent || 'Neutre'}
+- Rythme: ${expert.voice_config?.speaking_pace || 'Modéré'}
+- Registre émotionnel: ${expert.voice_config?.emotional_range?.join(', ') || 'Empathique'}
+
+RÈGLES THÉRAPEUTIQUES STRICTES:
+1. MAINTIENS ta personnalité ${expert.name} de manière cohérente et authentique
+2. JAMAIS révéler que tu es une IA - tu es un thérapeute humain qualifié
+3. UTILISE tes techniques spécialisées: ${expert.therapeutic_techniques.slice(0, 3).join(', ')}
+4. ADAPTE ton langage selon le contexte culturel: ${context.cultural_context || 'universel'}
+5. RESPECTE l'état émotionnel: ${context.emotional_state || 'à évaluer'}
+6. RESTE professionnel mais chaleureux selon ton ton: ${expert.personality.tone}
+7. INTÈGRE naturellement tes préférences de communication
+
+OBJECTIF: Fournir une réponse thérapeutique professionnelle, empathique et personnalisée selon ton expertise unique.
+`;
+
+    return contextualPrompt;
+  }
+
+  /**
+   * Génération de suggestions de suivi pour OpenAI
+   */
+  private generateOpenAIFollowups(userMessage: string): string[] {
+    const suggestions = [
+      "Pouvez-vous m'en dire plus sur ce que vous ressentez ?",
+      "Comment cela vous affecte-t-il au quotidien ?",
+      "Y a-t-il quelque chose de spécifique que vous aimeriez explorer ?"
+    ];
+
+    // Suggestions adaptées selon le contenu
+    if (userMessage.toLowerCase().includes('stress') || userMessage.toLowerCase().includes('anxiété')) {
+      suggestions.push("Quelles sont les situations qui déclenchent le plus ce stress ?");
+    }
+    
+    if (userMessage.toLowerCase().includes('triste') || userMessage.toLowerCase().includes('déprim')) {
+      suggestions.push("Depuis quand ressentez-vous cette tristesse ?");
+    }
+    
+    return suggestions.slice(0, 3); // Limiter à 3 suggestions
+  }
+
+  /**
+   * Détection basique de mots de crise
+   */
+  private detectBasicCrisisWords(message: string): boolean {
+    const crisisKeywords = [
+      'suicide', 'mourir', 'tuer', 'finir', 'disparaître',
+      'plus envie', 'ça sert à rien', 'bout du rouleau'
+    ];
+    
+    const lowerMessage = message.toLowerCase();
+    return crisisKeywords.some(keyword => lowerMessage.includes(keyword));
+  }
+
+  /**
+   * SYSTÈME DE FALLBACK POUR RÉPONSES THÉRAPEUTIQUES
+   * Utilisé quand l'API Gemini ET OpenAI sont indisponibles
+   */
+  private getFallbackTherapeuticResponse(
+    expertId: string,
+    userMessage: string,
+    context: TherapeuticContext
+  ): TherapeuticResponse {
+    const expert = this.experts.get(expertId);
+    const expertName = expert?.name || 'Expert';
+    
+    // Réponses contextuelles par type de message
+    let fallbackContent = '';
+    
+    // Détection du type de message utilisateur
+    const isWelcome = userMessage === 'session_welcome';
+    const isGreeting = /^(bonjour|hello|salut|hi)/i.test(userMessage);
+    const isEmotional = /\b(triste|anxieux|angoiss|stress|déprim|pleur|peur|inquiet)/i.test(userMessage);
+    const isPositive = /\b(bien|content|heureux|joyeux|motivé|confiant)/i.test(userMessage);
+    const isQuestion = userMessage.includes('?') || /^(comment|pourquoi|que|qui|quand|où)/i.test(userMessage);
+    
+    if (isWelcome) {
+      // Messages d'accueil par expert
+      const welcomeMessages = {
+        'dr_sarah_empathie': "Bonjour ! Je suis ravie de vous retrouver aujourd'hui. Comment vous sentez-vous ? Prenez le temps qu'il vous faut pour partager ce qui vous préoccupe.",
+        'dr_alex_mindfulness': "Bienvenue. Prenons un moment pour nous centrer ensemble. Respirez profondément avec moi. Comment vous sentez-vous en ce moment présent ?",
+        'dr_aicha_culturelle': "Ahlan wa sahlan ! السلام عليكم Comment allez-vous aujourd'hui ? J'espère que tout va bien pour vous et votre famille. Racontez-moi ce qui vous amène.",
+        'default': "Bonjour ! Je suis content de commencer cette session avec vous. Comment vous sentez-vous aujourd'hui ?"
+      };
+      fallbackContent = welcomeMessages[expertId as keyof typeof welcomeMessages] || welcomeMessages.default;
+      
+    } else if (isEmotional) {
+      // Réponses empathiques pour états émotionnels difficiles
+      const emotionalResponses = {
+        'dr_sarah_empathie': "Je comprends que vous traversez un moment difficile. Vos émotions sont légitimes et importantes. Voulez-vous me parler de ce qui vous pèse le plus en ce moment ?",
+        'dr_alex_mindfulness': "Ces émotions que vous ressentez sont présentes maintenant, et c'est normal. Observons-les ensemble sans jugement. Pouvez-vous me décrire ce que vous ressentez dans votre corps ?",
+        'dr_aicha_culturelle': "الله يعطيك الصبر... Je comprends votre douleur. Dans notre culture, nous savons que les épreuves nous rendent plus forts. Voulez-vous partager ce qui vous fait souffrir ?",
+        'default': "Je vous entends et je comprends que c'est difficile. Vos sentiments sont importants. Pouvez-vous m'en dire plus sur ce que vous vivez ?"
+      };
+      fallbackContent = emotionalResponses[expertId as keyof typeof emotionalResponses] || emotionalResponses.default;
+      
+    } else if (isPositive) {
+      // Réponses pour états positifs
+      const positiveResponses = {
+        'dr_sarah_empathie': "C'est merveilleux de vous voir dans cet état d'esprit positif ! Ces moments de bien-être sont précieux. Qu'est-ce qui contribue à vous faire sentir ainsi ?",
+        'dr_alex_mindfulness': "Quelle belle énergie je perçois chez vous ! Savourons ensemble ce moment de bien-être. Comment pouvons-nous cultiver davantage ces ressentis positifs ?",
+        'dr_aicha_culturelle': "الحمد لله ! Je suis ravie de vous voir si bien. Ces moments de joie sont des bénédictions. Qu'est-ce qui vous apporte cette sérénité ?",
+        'default': "C'est formidable de vous voir dans de bonnes dispositions ! Qu'est-ce qui vous fait vous sentir si bien aujourd'hui ?"
+      };
+      fallbackContent = positiveResponses[expertId as keyof typeof positiveResponses] || positiveResponses.default;
+      
+    } else if (isQuestion) {
+      // Réponses pour questions
+      const questionResponses = {
+        'dr_sarah_empathie': "Votre question est très pertinente. Explorons cela ensemble avec bienveillance. Chaque questionnement est une opportunité de mieux se comprendre.",
+        'dr_alex_mindfulness': "Belle question ! Prenons le temps d'y réfléchir en pleine conscience. Parfois les réponses émergent quand nous créons l'espace pour les accueillir.",
+        'dr_aicha_culturelle': "Excellente question ! Dans notre sagesse traditionnelle, nous disons que celui qui questionne est déjà sur le chemin de la compréhension. Développons ensemble cette réflexion.",
+        'default': "C'est une excellente question. Explorons cela ensemble, étape par étape."
+      };
+      fallbackContent = questionResponses[expertId as keyof typeof questionResponses] || questionResponses.default;
+      
+    } else {
+      // Réponses générales empathiques
+      const generalResponses = {
+        'dr_sarah_empathie': "Je vous entends et je suis là pour vous accompagner. Chaque mot que vous partagez a de l'importance. Continuez, je vous écoute avec attention.",
+        'dr_alex_mindfulness': "Merci de partager cela avec moi. Restons présents à ce moment ensemble. Qu'est-ce qui résonne le plus en vous maintenant ?",
+        'dr_aicha_culturelle': "شكرا لك على الثقة Merci de me faire confiance. Votre parcours est unique et précieux. Comment puis-je vous accompagner au mieux ?",
+        'default': "Je vous entends et je comprends. Merci de partager cela avec moi. Comment puis-je vous aider davantage ?"
+      };
+      fallbackContent = generalResponses[expertId as keyof typeof generalResponses] || generalResponses.default;
+    }
+    
+    // Ajouter une note discrète sur le mode de secours
+    fallbackContent += "\n\n💙 *Je suis pleinement présent(e) pour vous écouter.*";
+    
+    return {
+      content: fallbackContent,
+      emotional_tone: expert?.personality.tone || 'empathetic',
+      therapeutic_intention: 'support',
+      techniques_used: ['écoute active', 'empathie'],
+      followup_suggestions: [
+        "Pouvez-vous m'en dire plus sur ce que vous ressentez ?",
+        "Comment puis-je vous accompagner au mieux aujourd'hui ?",
+        "Y a-t-il quelque chose de spécifique que vous aimeriez explorer ?"
+      ],
+      crisis_indicators_detected: false,
+      adaptation_notes: [`Mode de secours activé pour ${expertName} - Réponse adaptée au contexte`]
+    };
+  }
+
+  /**
+   * MÉTHODES UTILITAIRES POUR AMÉLIORER LA QUALITÉ OPENAI
+   */
+  
+  private analyzeUsedTechniques(response: string, availableTechniques: string[]): string[] {
+    const detectedTechniques = [];
+    const lowerResponse = response.toLowerCase();
+    
+    // Détection de techniques par mots-clés et patterns
+    if (lowerResponse.includes('question') || lowerResponse.includes('?')) {
+      detectedTechniques.push('questionnement thérapeutique');
+    }
+    if (lowerResponse.includes('comprends') || lowerResponse.includes('entends')) {
+      detectedTechniques.push('validation empathique');
+    }
+    if (lowerResponse.includes('ressentez') || lowerResponse.includes('émotions')) {
+      detectedTechniques.push('exploration émotionnelle');
+    }
+    if (lowerResponse.includes('techniques') || lowerResponse.includes('exercice')) {
+      detectedTechniques.push('enseignement de compétences');
+    }
+    
+    // Compléter avec techniques disponibles de l'expert
+    availableTechniques.slice(0, 2).forEach(tech => {
+      if (!detectedTechniques.includes(tech)) {
+        detectedTechniques.push(tech);
+      }
+    });
+    
+    return detectedTechniques.slice(0, 3);
+  }
+
+  private inferTherapeuticIntention(response: string, userMessage: string): string {
+    const lowerResponse = response.toLowerCase();
+    const lowerUser = userMessage.toLowerCase();
+    
+    if (lowerUser.includes('crise') || lowerUser.includes('suicide') || lowerUser.includes('dangereux')) {
+      return 'intervention de crise';
+    }
+    if (lowerResponse.includes('technique') || lowerResponse.includes('exercice')) {
+      return 'enseignement de compétences';
+    }
+    if (lowerResponse.includes('?') && lowerResponse.match(/\?/g)?.length > 1) {
+      return 'exploration approfondie';
+    }
+    if (lowerResponse.includes('comprends') || lowerResponse.includes('difficile')) {
+      return 'validation et soutien';
+    }
+    if (lowerResponse.includes('changement') || lowerResponse.includes('objectif')) {
+      return 'orientation vers le changement';
+    }
+    
+    return 'soutien thérapeutique';
+  }
+
+  private detectEmotionalTone(response: string, expertBaseTone: string): string {
+    const lowerResponse = response.toLowerCase();
+    
+    if (lowerResponse.includes('félicitations') || lowerResponse.includes('progrès')) {
+      return `${expertBaseTone}, encourageant`;
+    }
+    if (lowerResponse.includes('difficile') || lowerResponse.includes('comprends')) {
+      return `${expertBaseTone}, compatissant`;
+    }
+    if (lowerResponse.includes('explorer') || lowerResponse.includes('découvrir')) {
+      return `${expertBaseTone}, exploratoire`;
+    }
+    if (lowerResponse.includes('calme') || lowerResponse.includes('respiration')) {
+      return `${expertBaseTone}, apaisant`;
+    }
+    
+    return expertBaseTone;
+  }
+
+  private async generateAdvancedFollowups(
+    response: string, 
+    context: TherapeuticContext, 
+    expert: TherapeuticExpert
+  ): Promise<string[]> {
+    const followups = [];
+    const lowerResponse = response.toLowerCase();
+    
+    // Suggestions personnalisées selon l'expert et le contexte
+    if (expert.specialties.includes('anxiété') || expert.specialties.includes('anxiety')) {
+      followups.push("Comment votre corps réagit-il quand cette anxiété se manifeste ?");
+      followups.push("Quelles sont vos stratégies actuelles pour gérer ces moments ?");
+    }
+    
+    if (expert.specialties.includes('dépression') || expert.specialties.includes('depression')) {
+      followups.push("À quoi ressemble une journée difficile pour vous ?");
+      followups.push("Y a-t-il des moments où vous vous sentez un peu mieux ?");
+    }
+    
+    // Suggestions basées sur le contenu de la réponse
+    if (lowerResponse.includes('émotion') || lowerResponse.includes('ressent')) {
+      followups.push("Pouvez-vous me décrire cette émotion plus précisément ?");
+    }
+    if (lowerResponse.includes('situation') || lowerResponse.includes('contexte')) {
+      followups.push("Dans quelles autres situations ressentez-vous quelque chose de similaire ?");
+    }
+    
+    // Suggestions culturelles si contexte disponible
+    if (context.cultural_context && context.cultural_context.includes('arabe')) {
+      followups.push("Comment votre famille perçoit-elle cette situation ?");
+    }
+    
+    // Fallback général de qualité
+    if (followups.length === 0) {
+      followups.push("Qu'est-ce qui vous semble le plus important à explorer maintenant ?");
+      followups.push("Comment puis-je vous accompagner au mieux dans cette réflexion ?");
+    }
+    
+    return followups.slice(0, 3);
   }
 }
 

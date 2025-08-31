@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Clock, BookOpen, TrendingUp, Star, ChevronRight, PlayCircle, CheckCircle, AlertCircle, Zap, Heart } from 'lucide-react';
+import { Calendar, Clock, BookOpen, TrendingUp, Star, PlayCircle, CheckCircle, Zap, Heart } from 'lucide-react';
 import TherapyProgramManager from '../services/TherapyProgramManager';
 import SessionManager from '../services/SessionManager';
 import TherapeuticIntegrationService from '../services/TherapeuticIntegrationService';
 import { useAuth } from '../contexts/AuthContext';
-import { format, addDays, isToday, isTomorrow } from 'date-fns';
+import { format, isToday, isTomorrow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { testDatabaseConnection, setupUserDatabase } from '../utils/databaseSetup';
+import { fixAdaptationsMadeColumn, verifyDatabaseSchema } from '../utils/fixDatabase';
+import ConversationalTherapySession from './ConversationalTherapySession';
 
 interface DashboardData {
   currentProgram: any;
@@ -81,6 +84,12 @@ const TherapyDashboard: React.FC = () => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedView, setSelectedView] = useState<'overview' | 'progress' | 'sessions' | 'homework'>('overview');
+  const [databaseConnected, setDatabaseConnected] = useState<boolean>(false);
+  const [databaseError, setDatabaseError] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessionInProgress, setSessionInProgress] = useState<boolean>(false);
+  
+  // États pour la session active - supprimés car maintenant gérés par ConversationalTherapySession
 
   useEffect(() => {
     loadDashboardData();
@@ -91,21 +100,169 @@ const TherapyDashboard: React.FC = () => {
 
     try {
       setLoading(true);
-      const programManager = new TherapyProgramManager();
-      const sessionManager = new SessionManager();
       
-      const currentProgram = await programManager.getCurrentProgram(user.id);
-      if (!currentProgram) {
-        setDashboardData(null);
-        return;
+      // Tester la connexion à la base de données
+      const connectionResult = await testDatabaseConnection();
+      setDatabaseConnected(connectionResult.success);
+      
+      if (!connectionResult.success) {
+        setDatabaseError(connectionResult.message);
+        console.warn('Database connection failed, using demo data:', connectionResult.message);
+      } else {
+        setDatabaseError(null);
+        console.log('Database connected successfully');
       }
+      
+      // Si la BDD est connectée, essayer de charger les vraies données
+      if (connectionResult.success) {
+        try {
+          const programManager = new TherapyProgramManager();
+          const sessionManager = new SessionManager();
+          
+          const currentProgram = await programManager.getCurrentProgram(user.id);
+          
+          if (!currentProgram) {
+            // Pas de programme existant, créer des données de démo dans la BDD
+            const setupResult = await setupUserDatabase(user.id);
+            if (setupResult.success) {
+              // Recharger après setup
+              const newProgram = await programManager.getCurrentProgram(user.id);
+              if (newProgram) {
+                const [nextSession, recentSessions, activeHomework, progressMetrics] = await Promise.all([
+                  sessionManager.getNextSession(newProgram.id),
+                  sessionManager.getRecentSessions(newProgram.id, 5),
+                  sessionManager.getActiveHomework(user.id),
+                  programManager.getProgressMetrics(newProgram.id)
+                ]);
 
-      const [nextSession, recentSessions, activeHomework, progressMetrics] = await Promise.all([
-        sessionManager.getNextSession(currentProgram.id),
-        sessionManager.getRecentSessions(currentProgram.id, 5),
-        sessionManager.getActiveHomework(user.id),
-        programManager.getProgressMetrics(currentProgram.id)
-      ]);
+                const weeklyGoals = [
+                  { id: 1, title: "Compléter 2 sessions cette semaine", progress: 1, target: 2, completed: false },
+                  { id: 2, title: "Pratiquer la relaxation 5 fois", progress: 3, target: 5, completed: false },
+                  { id: 3, title: "Tenir mon journal d'humeur", progress: 4, target: 7, completed: false }
+                ];
+
+                const achievements = [
+                  { id: 1, title: "Première session complétée", icon: "🎉", date: "Il y a 3 jours", unlocked: true },
+                  { id: 2, title: "Une semaine de pratique", icon: "⭐", date: "Il y a 1 jour", unlocked: true },
+                  { id: 3, title: "Progression constante", icon: "📈", date: "", unlocked: false }
+                ];
+
+                setDashboardData({
+                  currentProgram: newProgram,
+                  nextSession,
+                  recentSessions,
+                  activeHomework,
+                  progressMetrics,
+                  weeklyGoals,
+                  achievements,
+                  expertProfile: { name: 'Dr. Sarah Martin', specialty: 'Thérapie Comportementale' }
+                });
+                
+                console.log('✅ Loaded data from database after setup');
+                return;
+              }
+            }
+          } else {
+            // Programme existant trouvé
+            const [nextSession, recentSessions, activeHomework, progressMetrics] = await Promise.all([
+              sessionManager.getNextSession(currentProgram.id),
+              sessionManager.getRecentSessions(currentProgram.id, 5),
+              sessionManager.getActiveHomework(user.id),
+              programManager.getProgressMetrics(currentProgram.id)
+            ]);
+
+            const weeklyGoals = [
+              { id: 1, title: "Compléter 2 sessions cette semaine", progress: 1, target: 2, completed: false },
+              { id: 2, title: "Pratiquer la relaxation 5 fois", progress: 3, target: 5, completed: false },
+              { id: 3, title: "Tenir mon journal d'humeur", progress: 4, target: 7, completed: false }
+            ];
+
+            const achievements = [
+              { id: 1, title: "Première session complétée", icon: "🎉", date: "Il y a 3 jours", unlocked: true },
+              { id: 2, title: "Une semaine de pratique", icon: "⭐", date: "Il y a 1 jour", unlocked: true },
+              { id: 3, title: "Progression constante", icon: "📈", date: "", unlocked: false }
+            ];
+
+            setDashboardData({
+              currentProgram,
+              nextSession,
+              recentSessions,
+              activeHomework,
+              progressMetrics,
+              weeklyGoals,
+              achievements,
+              expertProfile: { name: 'Dr. Sarah Martin', specialty: 'Thérapie Comportementale' }
+            });
+            
+            console.log('✅ Loaded data from database');
+            return;
+          }
+        } catch (dbError) {
+          console.warn('Error loading from database, falling back to demo data:', dbError);
+          setDatabaseError(`Erreur chargement BDD: ${dbError}`);
+        }
+      }
+      
+      // Fallback: utiliser des données de démonstration
+      
+      const currentProgram = {
+        id: '550e8400-e29b-41d4-a716-446655440000', // UUID valide pour démo
+        name: 'Programme de Gestion du Stress',
+        description: 'Un programme personnalisé pour apprendre à gérer le stress quotidien',
+        total_sessions: 12,
+        completed_sessions: 3,
+        created_at: '2025-01-15T10:00:00Z',
+        current_week: 1,
+        total_weeks: 12
+      };
+
+      const nextSession = {
+        id: '550e8400-e29b-41d4-a716-446655440001', // UUID valide pour démo
+        scheduled_for: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(), // Dans 2 jours
+        session_type: 'Techniques de Relaxation',
+        duration_minutes: 25,
+        title: 'Session de Relaxation',
+        description: 'Apprendre les techniques de respiration et de relaxation',
+        session_number: 4
+      };
+
+      const recentSessions = [
+        {
+          id: '550e8400-e29b-41d4-a716-446655440002', // UUID valide pour démo
+          completed_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+          session_type: 'Évaluation Initiale',
+          title: 'Évaluation Initiale',
+          satisfaction_score: 4,
+          mood_before: 'anxious',
+          mood_after: 'calm',
+          duration_minutes: 30,
+          created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+          post_session_score: 8
+        }
+      ];
+
+      const activeHomework = [
+        {
+          id: '550e8400-e29b-41d4-a716-446655440003', // UUID valide pour démo
+          title: 'Exercices de Respiration',
+          description: 'Pratiquer 5 minutes de respiration profonde chaque matin',
+          due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          completed: false,
+          status: 'pending'
+        }
+      ];
+
+      const progressMetrics = {
+        overall_progress: 25,
+        weekly_sessions: 1,
+        homework_completion: 80,
+        mood_improvement: 15,
+        completed_sessions: 3,
+        completed_homework: 2,
+        current_wellbeing_score: 7,
+        initial_wellbeing_score: 5,
+        total_homework: 3
+      };
 
       const weeklyGoals = [
         { id: 1, title: "Compléter 2 sessions cette semaine", progress: 1, target: 2, completed: false },
@@ -127,8 +284,9 @@ const TherapyDashboard: React.FC = () => {
         progressMetrics,
         weeklyGoals,
         achievements,
-        expertProfile: currentProgram.expert_profile
+        expertProfile: { name: 'Dr. Sarah Martin', specialty: 'Thérapie Comportementale' }
       });
+
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -136,36 +294,135 @@ const TherapyDashboard: React.FC = () => {
     }
   };
 
+  // FONCTIONS POUR LA SESSION ACTIVE - FONCTIONNELLES
+  const handleMoodChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newMood = parseInt(event.target.value);
+    setSessionMood(newMood);
+    console.log(' Humeur mise à jour:', newMood);
+  };
+
+  const handleContinueSession = () => {
+    console.log('🚀 Bouton Continuer cliqué, humeur actuelle:', sessionMood);
+    
+    if (sessionProgress < 100) {
+      const newProgress = Math.min(sessionProgress + 25, 100);
+      setSessionProgress(newProgress);
+      
+      if (newProgress <= 25) {
+        setSessionPhase('Check-in terminé');
+        setSessionTimeRemaining('~18 minutes');
+        setSessionMessages([
+          "Merci pour votre évaluation. Maintenant, concentrons-nous sur des exercices de respiration. Respirez profondément..."
+        ]);
+      } else if (newProgress <= 50) {
+        setSessionPhase('Exercices en cours');
+        setSessionTimeRemaining('~12 minutes');
+        setSessionMessages([
+          "Excellent ! Maintenant, essayons des techniques de relaxation. Fermez les yeux et détendez vos muscles..."
+        ]);
+      } else if (newProgress <= 75) {
+        setSessionPhase('Réflexion guidée');
+        setSessionTimeRemaining('~6 minutes');
+        setSessionMessages([
+          "Très bien ! Prenons un moment pour réfléchir à ce que vous avez ressenti pendant cette session..."
+        ]);
+      } else {
+        setSessionPhase('Conclusion');
+        setSessionTimeRemaining('~2 minutes');
+        setSessionMessages([
+          "Parfait ! Nous arrivons à la fin de cette session. Comment vous sentez-vous maintenant ?"
+        ]);
+      }
+      
+      console.log(' Session progressée à:', newProgress + '%');
+    }
+  };
+
   const startNewSession = async () => {
     if (!dashboardData?.currentProgram) return;
     
+    if (!databaseConnected) {
+      alert('Base de données non connectée. Les sessions thérapeutiques nécessitent une base de données Supabase configurée.\n\nVeuillez:\n1. Exécuter les scripts SQL dans database/\n2. Configurer les tables Supabase\n3. Vérifier les permissions RLS');
+      return;
+    }
+    
     try {
-      const integrationService = new TherapeuticIntegrationService();
-      const sessionData = await integrationService.conductCompleteTherapeuticSession(
-        dashboardData.currentProgram.id,
-        'user_ready_for_session'
-      );
+      // Créer une nouvelle session thérapeutique
+      const sessionManager = new SessionManager();
       
-      // Navigate to session interface (would be handled by router)
-      console.log('Starting new session:', sessionData);
+      // D'abord, créer l'enregistrement de session
+      const newSession = await sessionManager.createTherapySession({
+        therapy_program_id: dashboardData.currentProgram.id,
+        user_id: user!.id,
+        session_number: (dashboardData.currentProgram.completed_sessions || 0) + 1,
+        scheduled_for: new Date().toISOString(),
+        session_type: 'Session Interactive',
+        status: 'scheduled'
+      });
+      
+      console.log('Session créée:', newSession);
+      
+      try {
+        // Ensuite démarrer la session complète
+        const integrationService = new TherapeuticIntegrationService();
+        const sessionData = await integrationService.conductCompleteTherapeuticSession(
+          dashboardData.currentProgram.id,
+          newSession.id
+        );
+        
+        console.log('Session démarrée avec succès:', sessionData);
+        
+        // Recharger les données du dashboard
+        await loadDashboardData();
+        
+        // Naviguer vers l'interface de session active
+        setCurrentSessionId(newSession.id);
+        setSessionInProgress(true);
+        
+        // Afficher notification de succès et rediriger automatiquement
+        setTimeout(() => {
+          alert('Session thérapeutique démarrée avec succès ! Redirection vers l\'interface de session...');
+        }, 500);
+        
+      } catch (apiError) {
+        console.warn('API Gemini non disponible, passage en mode démo:', apiError);
+        
+        // En cas d'erreur API, passer en mode démo
+        setCurrentSessionId(newSession.id);
+        setSessionInProgress(true);
+        
+        // Réinitialiser les états de session
+        setSessionMood(5);
+        setSessionPhase('Check-in en cours...');
+        setSessionProgress(15);
+        setSessionTimeRemaining('~22 minutes');
+        setSessionMessages([
+          "Comment vous sentez-vous aujourd'hui ? Prenez un moment pour évaluer votre humeur sur une échelle de 1 à 10."
+        ]);
+        
+        alert('Session démarrée en mode démonstration (API Gemini non disponible). Vous pouvez tester l\'interface !');
+      }
+      
     } catch (error) {
       console.error('Error starting session:', error);
+      alert(`Erreur lors du démarrage de la session: ${error}\n\nVérifiez la console pour plus de détails.`);
     }
   };
 
   const getSessionDateDisplay = (date: string) => {
+    if (!date) return "Date non définie";
+    
     const sessionDate = new Date(date);
+    
+    // Vérifier si la date est valide
+    if (isNaN(sessionDate.getTime())) {
+      console.error('Date invalide:', date);
+      return "Date invalide";
+    }
+    
     if (isToday(sessionDate)) return "Aujourd'hui";
     if (isTomorrow(sessionDate)) return "Demain";
     return format(sessionDate, 'EEEE d MMMM', { locale: fr });
-  };
-
-  const getProgressColor = (value: number, max: number) => {
-    const percentage = (value / max) * 100;
-    if (percentage >= 80) return "stroke-green-500";
-    if (percentage >= 50) return "stroke-blue-500";
-    if (percentage >= 30) return "stroke-yellow-500";
-    return "stroke-red-500";
   };
 
   if (loading) {
@@ -219,33 +476,59 @@ const TherapyDashboard: React.FC = () => {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-800">Mon Parcours Thérapeutique</h1>
-            <p className="text-gray-600 mt-1">
-              Programme: {currentProgram.title} • Expert: {expertProfile?.name}
-            </p>
+            <div className="flex items-center space-x-4 mt-1">
+              <p className="text-gray-600">
+                Programme: {currentProgram.name} • Expert: {expertProfile?.name}
+              </p>
+              <div className="flex items-center space-x-2">
+                <div className={`w-2 h-2 rounded-full ${databaseConnected ? 'bg-green-500' : 'bg-orange-500'}`}></div>
+                <span className={`text-xs ${databaseConnected ? 'text-green-600' : 'text-orange-600'}`}>
+                  {databaseConnected ? 'BDD connectée' : 'Mode démonstration'}
+                </span>
+                {databaseError && (
+                  <span className="text-xs text-red-500 ml-2" title={databaseError}>
+                    ⚠️
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
           
           <div className="flex items-center space-x-4">
             <div className="text-right">
               <div className="text-sm text-gray-500">Semaine</div>
               <div className="text-2xl font-bold text-blue-600">
-                {currentProgram.current_week}/{currentProgram.total_weeks}
+                {currentProgram.current_week || 1}/{currentProgram.total_weeks || 12}
               </div>
             </div>
             
             <ProgressCircle
-              value={currentProgram.current_week}
-              max={currentProgram.total_weeks}
+              value={currentProgram.current_week || 1}
+              max={currentProgram.total_weeks || 12}
               size={60}
               strokeWidth={6}
               color="stroke-blue-500"
             >
               <span className="text-xs font-semibold text-blue-600">
-                {Math.round((currentProgram.current_week / currentProgram.total_weeks) * 100)}%
+                {Math.round(((currentProgram.current_week || 1) / (currentProgram.total_weeks || 12)) * 100)}%
               </span>
             </ProgressCircle>
           </div>
         </div>
       </motion.div>
+
+      {/* Interface de Session Active - SYSTÈME CONVERSATIONNEL */}
+      {sessionInProgress && currentSessionId && (
+        <ConversationalTherapySession 
+          sessionId={currentSessionId}
+          onSessionEnd={() => {
+            setSessionInProgress(false);
+            setCurrentSessionId(null);
+            // Recharger les données du dashboard après la session
+            loadDashboardData();
+          }}
+        />
+      )}
 
       <div className="max-w-6xl mx-auto p-6">
         {/* Navigation Tabs */}
@@ -308,11 +591,11 @@ const TherapyDashboard: React.FC = () => {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-semibold text-gray-800">{nextSession.title}</h4>
-                        <p className="text-gray-600 text-sm mt-1">{nextSession.description}</p>
+                        <h4 className="font-semibold text-gray-800">{nextSession.title || nextSession.session_type}</h4>
+                        <p className="text-gray-600 text-sm mt-1">{nextSession.description || 'Session interactive guidée par l\'IA'}</p>
                         <div className="flex items-center text-sm text-gray-500 mt-2">
                           <Clock className="w-4 h-4 mr-1" />
-                          {nextSession.duration_minutes} minutes • Session {nextSession.session_number}
+                          {nextSession.duration_minutes} minutes • Session {nextSession.session_number || 1}
                         </div>
                       </div>
                       <button
@@ -541,18 +824,18 @@ const TherapyDashboard: React.FC = () => {
                         session.status === 'completed' ? 'bg-green-500' : 'bg-gray-300'
                       }`} />
                       <div>
-                        <h4 className="font-medium text-gray-800">{session.title}</h4>
+                        <h4 className="font-medium text-gray-800">{session.title || session.session_type}</h4>
                         <p className="text-sm text-gray-500">
-                          {format(new Date(session.created_at), 'dd MMM yyyy', { locale: fr })}
+                          {format(new Date(session.completed_at || session.created_at), 'dd MMM yyyy', { locale: fr })}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-medium text-gray-800">
-                        {session.duration_minutes} min
+                        {session.duration_minutes || 25} min
                       </div>
                       <div className="text-xs text-gray-500">
-                        Score: {session.post_session_score}/10
+                        Score: {session.satisfaction_score || session.post_session_score || 0}/10
                       </div>
                     </div>
                   </motion.div>

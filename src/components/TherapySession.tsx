@@ -122,10 +122,10 @@ const TherapySession: React.FC<TherapySessionProps> = ({
   const ttsServiceRef = useRef<TherapeuticTTSService>();
 
   useEffect(() => {
-    initializeSession();
     sessionManagerRef.current = new SessionManager();
     integrationServiceRef.current = new TherapeuticIntegrationService();
     ttsServiceRef.current = new TherapeuticTTSService();
+    initializeSession();
   }, [sessionId]);
 
   useEffect(() => {
@@ -165,20 +165,34 @@ const TherapySession: React.FC<TherapySessionProps> = ({
       });
 
       // Initial expert message
-      const welcomeMessage = await generateExpertResponse('session_start', '');
-      addMessage({
-        sender: 'expert',
-        content: welcomeMessage.text,
-        hasAudio: true,
-        audioUrl: welcomeMessage.audioUrl,
-        emotion: 'welcoming'
-      });
+      try {
+        const welcomeMessage = await generateExpertResponse('session_start', '');
+        if (welcomeMessage.text) {
+          addMessage({
+            sender: 'expert',
+            content: welcomeMessage.text,
+            hasAudio: true,
+            audioUrl: welcomeMessage.audioUrl,
+            emotion: 'welcoming'
+          });
+        }
+      } catch (error) {
+        console.log('Error generating welcome message, using fallback');
+        addMessage({
+          sender: 'expert',
+          content: 'Bonjour ! Je suis ravi de commencer cette session avec vous. Comment vous sentez-vous aujourd\'hui ?',
+          hasAudio: false,
+          emotion: 'welcoming'
+        });
+      }
 
-      // Show well-being prompt after 1 second
+      // Show well-being prompt after 1 second (always show regardless of AI response)
       setTimeout(() => setShowWellBeingPrompt(true), 1000);
       
     } catch (error) {
       console.error('Error initializing session:', error);
+      // Show well-being prompt even if session initialization fails
+      setTimeout(() => setShowWellBeingPrompt(true), 1000);
     } finally {
       setIsLoading(false);
     }

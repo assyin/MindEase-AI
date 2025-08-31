@@ -131,6 +131,9 @@ export class TherapeuticIntegrationService {
       );
       
       // 3. Création programme thérapeutique personnalisé
+      console.log('🔧 Création du programme thérapeutique pour utilisateur:', userId);
+      console.log('📋 Expert sélectionné:', expertMatching.suggested_expert.id);
+      
       const therapeuticProgram = await this.programManager.createProgram(
         userId,
         {
@@ -147,10 +150,13 @@ export class TherapeuticIntegrationService {
         userPreferences
       );
       
+      console.log('✅ Programme thérapeutique créé:', therapeuticProgram?.id);
+      
       // 4. Planification des premières sessions
       const firstSession = await this.scheduleFirstSession(
         therapeuticProgram.id,
-        expertMatching.suggested_expert.id
+        expertMatching.suggested_expert.id,
+        userId
       );
       
       // Créer les sessions suivantes
@@ -188,7 +194,7 @@ export class TherapeuticIntegrationService {
     session_summary: any;
     audio_interactions: TherapeuticAudioResponse[];
     crisis_alerts: CrisisAlert[];
-    adaptations_made: string[];
+    // adaptations_made: string[]; // Temporairement commenté - colonne manquante en BDD
     homework_assigned: any[];
     next_session_scheduled?: string;
   }> {
@@ -239,7 +245,7 @@ export class TherapeuticIntegrationService {
         const homeworkResult = await this.sessionManager.processHomeworkReview(sessionId, {
           completed_assignments: [{
             assignment_id: 'hw_001',
-            completion_status: 'completed',
+            completed: true,
             effectiveness_rating: 7,
             obstacles: ['Manque de temps'],
             insights: ['Plus facile le matin']
@@ -322,7 +328,7 @@ export class TherapeuticIntegrationService {
         session_summary: sessionConclusion.session_summary,
         audio_interactions: audioInteractions,
         crisis_alerts: crisisAlerts,
-        adaptations_made: adaptationsMade,
+        // adaptations_made: adaptationsMade, // Temporairement commenté
         homework_assigned: sessionConclusion.homework_assignments,
         next_session_scheduled: sessionConclusion.next_session_preview
       };
@@ -508,29 +514,26 @@ export class TherapeuticIntegrationService {
     };
   }
   
-  private async scheduleFirstSession(programId: string, expertId: string): Promise<TherapySession> {
+  private async scheduleFirstSession(programId: string, expertId: string, userId?: string): Promise<TherapySession> {
+    // Get current user ID if not provided
+    if (!userId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      userId = user.id;
+    }
+
     // Créer première session planifiée dans la base de données
     const sessionData = {
       therapy_program_id: programId,
+      user_id: userId, // Required for RLS policies
       session_number: 1,
-      scheduled_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // J+1
-      session_theme: 'Première session - Introduction et évaluation',
-      therapeutic_objective: 'Faire connaissance et établir les objectifs thérapeutiques',
-      techniques_taught: ['Introduction aux techniques de base'],
-      concepts_covered: ['Présentation du programme', 'Établissement des objectifs'],
-      checkin_data: {},
-      homework_review: {},
-      main_content: {},
-      practical_application: {},
-      session_summary: {},
-      pre_session_mood_score: null,
-      post_session_mood_score: null,
-      session_effectiveness_score: null,
-      user_engagement_level: null,
-      adaptations_made: [],
-      expert_notes: 'Première session programmée automatiquement',
-      session_status: 'planned',
-      attendance_status: 'present'
+      scheduled_for: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // J+1
+      session_type: 'initial_assessment', // Required field for therapy_sessions table
+      status: 'scheduled',
+      attendance_status: 'present',
+      session_notes: 'Première session - Introduction et évaluation. Objectifs: Faire connaissance et établir les objectifs thérapeutiques.'
     };
 
     const { data, error } = await supabase
@@ -582,24 +585,11 @@ export class TherapeuticIntegrationService {
       sessionsToCreate.push({
         therapy_program_id: programId,
         session_number: i + 2,
-        scheduled_date: new Date(Date.now() + (i + 2) * 7 * 24 * 60 * 60 * 1000).toISOString(), // Weekly sessions
-        session_theme: theme.theme,
-        therapeutic_objective: theme.objective,
-        techniques_taught: theme.techniques,
-        concepts_covered: [theme.theme],
-        checkin_data: {},
-        homework_review: {},
-        main_content: {},
-        practical_application: {},
-        session_summary: {},
-        pre_session_mood_score: null,
-        post_session_mood_score: null,
-        session_effectiveness_score: null,
-        user_engagement_level: null,
-        adaptations_made: [],
-        expert_notes: 'Session programmée automatiquement',
-        session_status: 'planned',
-        attendance_status: 'present'
+        scheduled_for: new Date(Date.now() + (i + 2) * 7 * 24 * 60 * 60 * 1000).toISOString(), // Weekly sessions
+        session_type: this.getSessionTypeByNumber(i + 2), // Required field for therapy_sessions table
+        status: 'scheduled',
+        attendance_status: 'present',
+        session_notes: `${theme.theme}. Objectif: ${theme.objective}. Techniques: ${theme.techniques.join(', ')}.`
       });
     }
 
@@ -712,6 +702,20 @@ export class TherapeuticIntegrationService {
     const phases = ['checkin', 'homework', 'content', 'practice', 'summary'];
     const currentIndex = phases.indexOf(currentPhase);
     return phases[currentIndex + 1] || 'completed';
+  }
+
+  private getSessionTypeByNumber(sessionNumber: number): string {
+    // Définir le type de session selon le numéro
+    switch (sessionNumber) {
+      case 1:
+        return 'initial_assessment';
+      case 2:
+        return 'therapeutic_exploration';
+      case 3:
+        return 'skill_building';
+      default:
+        return 'therapeutic_session';
+    }
   }
 
   private createAssessmentResultFromOnboarding(

@@ -72,7 +72,7 @@ export interface TherapySession {
   expert_notes: string;
   
   // Statut
-  session_status: 'planned' | 'in_progress' | 'completed' | 'missed' | 'cancelled';
+  status: 'scheduled' | 'in_progress' | 'completed' | 'missed' | 'cancelled';
   attendance_status: 'present' | 'absent' | 'partial';
   
   // Méta
@@ -221,7 +221,7 @@ export class SessionManager {
     homeworkFeedback: {
       completed_assignments: Array<{
         assignment_id: string;
-        completion_status: 'completed' | 'partial' | 'not_done';
+        completed: boolean;
         effectiveness_rating: number;
         obstacles: string[];
         insights: string[];
@@ -272,7 +272,7 @@ export class SessionManager {
       
       return {
         review_summary,
-        key_insights,
+        key_insights: keyInsights,
         adjustments_needed: adjustments,
         proceed_to_content: completionRate > 0 || keyInsights.length > 0
       };
@@ -473,7 +473,7 @@ export class SessionManager {
           post_session_mood_score: conclusionData.post_session_mood,
           session_effectiveness_score: conclusionData.session_effectiveness,
           user_engagement_level: conclusionData.confidence_in_techniques,
-          session_status: 'completed',
+          status: 'completed',
           actual_end_time: new Date().toISOString(),
           session_duration_minutes: this.calculateSessionDuration(sessionId),
           updated_at: new Date().toISOString()
@@ -580,7 +580,7 @@ export class SessionManager {
   
   private calculateHomeworkCompletionRate(assignments: any[]): number {
     if (!assignments.length) return 0;
-    const completed = assignments.filter(a => a.completion_status === 'completed').length;
+    const completed = assignments.filter(a => a.completed === true).length;
     return Math.round(completed / assignments.length * 100);
   }
   
@@ -616,8 +616,8 @@ export class SessionManager {
       await supabase
         .from('homework_assignments')
         .update({
-          completion_status: assignment.completion_status,
-          completion_date: assignment.completion_status === 'completed' ? new Date().toISOString() : null,
+          completed: assignment.completed,
+          completion_date: assignment.completed === true ? new Date().toISOString() : null,
           effectiveness_rating: assignment.effectiveness_rating,
           obstacles_encountered: assignment.obstacles
         })
@@ -641,7 +641,7 @@ export class SessionManager {
     await supabase
       .from('therapy_sessions')
       .update({
-        session_status: status,
+        status: status,
         ...additionalData,
         updated_at: new Date().toISOString()
       })
@@ -753,7 +753,7 @@ export class SessionManager {
         .from('therapy_sessions')
         .select('*')
         .eq('therapy_program_id', programId)
-        .eq('session_status', 'planned')
+        .eq('status', 'scheduled')
         .order('created_at', { ascending: true })
         .limit(1)
         .single();
@@ -778,7 +778,7 @@ export class SessionManager {
         .from('therapy_sessions')
         .select('*')
         .eq('therapy_program_id', programId)
-        .eq('session_status', 'completed')
+        .eq('status', 'completed')
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -800,12 +800,9 @@ export class SessionManager {
     try {
       const { data, error } = await supabase
         .from('homework_assignments')
-        .select(`
-          *,
-          therapy_programs!inner(user_id)
-        `)
-        .eq('therapy_programs.user_id', userId)
-        .in('completion_status', ['assigned', 'in_progress'])
+        .select('*')
+        .eq('user_id', userId)
+        .eq('completed', false)
         .order('due_date', { ascending: true });
 
       if (error) {
@@ -816,6 +813,36 @@ export class SessionManager {
     } catch (error) {
       console.error('Error fetching active homework:', error);
       return [];
+    }
+  }
+  
+  /**
+   * CRÉER UNE NOUVELLE SESSION THÉRAPEUTIQUE
+   * Crée un enregistrement de session dans la base de données
+   */
+  async createTherapySession(sessionData: {
+    therapy_program_id: string;
+    user_id: string;
+    session_number: number;
+    scheduled_for: string;
+    session_type: string;
+    status: string;
+  }): Promise<TherapySession> {
+    try {
+      const { data, error } = await supabase
+        .from('therapy_sessions')
+        .insert([sessionData])
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return data as TherapySession;
+    } catch (error) {
+      console.error('Error creating therapy session:', error);
+      throw new Error('Impossible de créer la session thérapeutique');
     }
   }
 }

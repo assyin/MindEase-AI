@@ -8,6 +8,7 @@ import { MoodTracker } from './components/MoodTracker';
 import { ConversationSidebar } from './components/ConversationSidebar';
 import { ConversationTabs } from './components/ConversationTabs';
 import { NewConversationModal } from './components/NewConversationModal';
+import { AuthModal } from './components/AuthModal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConversationsProvider, useConversations } from './contexts/ConversationsContext';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
@@ -24,6 +25,7 @@ const AppContent: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'chat' | 'dashboard' | 'settings' | 'notifications' | 'mood-tracker' | 'darija-test' | 'voice-lab' | 'therapy-test' | 'therapy-onboarding' | 'therapy-dashboard'>('chat');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showNewConversationModal, setShowNewConversationModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const { user, loading, signOut } = useAuth();
   const { languageSettings, setLanguage, isRtl } = useLanguage();
 
@@ -54,6 +56,13 @@ const AppContent: React.FC = () => {
       window.removeEventListener('navigate-to-therapy-onboarding', handleNavigateToTherapyOnboarding);
     };
   }, []);
+
+  // Afficher l'AuthModal si l'utilisateur n'est pas connecté
+  useEffect(() => {
+    if (!loading && !user) {
+      setShowAuthModal(true);
+    }
+  }, [loading, user]);
 
   if (loading) {
     return (
@@ -90,6 +99,35 @@ const AppContent: React.FC = () => {
         return <MinimalChatInterface />;
     }
   };
+
+  // Page d'accueil pour les utilisateurs non connectés
+  if (!user && !loading) {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br from-blue-50 to-green-50 ${isRtl() ? 'rtl' : 'ltr'}`} dir={isRtl() ? 'rtl' : 'ltr'}>
+        <div className="min-h-screen flex flex-col items-center justify-center px-4">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 bg-gradient-to-r from-blue-500 to-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-white text-3xl font-bold">M</span>
+            </div>
+            <h1 className="text-4xl font-bold text-gray-800 mb-4">MindEase AI</h1>
+            <p className="text-xl text-gray-600 mb-8">Votre plateforme de soutien psychologique par IA</p>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="bg-blue-600 text-white px-8 py-3 rounded-lg font-medium text-lg hover:bg-blue-700 transition-colors"
+            >
+              Commencer maintenant
+            </button>
+          </div>
+        </div>
+
+        {/* Modal d'authentification */}
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen bg-gradient-to-br from-blue-50 to-green-50 ${isRtl() ? 'rtl' : 'ltr'}`} dir={isRtl() ? 'rtl' : 'ltr'}>

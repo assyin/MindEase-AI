@@ -40,7 +40,7 @@ export interface TherapyProgram {
   session_frequency_per_week: number;
   
   // Statut et suivi
-  program_status: 'active' | 'paused' | 'completed' | 'discontinued';
+  status: 'active' | 'paused' | 'completed' | 'cancelled';
   start_date: string;
   end_date?: string;
   completion_date?: string;
@@ -117,60 +117,81 @@ export class TherapyProgramManager {
         userPreferences.availability_per_week
       );
       
-      // 3. Créer le programme thérapeutique
+      // 3. Créer le programme thérapeutique - ADAPTATION AUX COLONNES DB
       const programData = {
         user_id: userId,
-        program_name: this.generateProgramName(assessmentResult.primary_diagnosis),
+        name: this.generateProgramName(assessmentResult.primary_diagnosis),
+        description: `Programme thérapeutique personnalisé pour ${assessmentResult.primary_diagnosis}`,
+        program_type: this.mapDiagnosisToType(assessmentResult.primary_diagnosis),
+        total_sessions: adaptedDuration.total_sessions,
+        completed_sessions: 0,
+        status: 'active' as const,
         
-        // Diagnostic
-        primary_diagnosis: assessmentResult.primary_diagnosis,
-        secondary_diagnoses: assessmentResult.secondary_diagnoses,
-        severity_level: assessmentResult.severity_level,
+        // Expert et paramètres dans le JSON
+        expert_profile: {
+          expert_id: expertId,
+          approach: expertConfig.approach,
+          voice_id: expertConfig.voice_id
+        },
         
-        // Profil utilisateur
-        personality_profile: assessmentResult.personality_profile,
-        risk_factors: assessmentResult.risk_factors,
-        protective_factors: assessmentResult.protective_factors,
-        motivation_level: assessmentResult.personality_profile.motivation || 7,
-        availability_per_week: userPreferences.availability_per_week,
+        // Configuration programme dans le JSON
+        program_settings: {
+          duration_weeks: adaptedDuration.duration_weeks,
+          session_frequency_per_week: adaptedDuration.frequency_per_week,
+          severity_level: assessmentResult.severity_level,
+          cultural_context: userPreferences.cultural_context,
+          preferred_language: userPreferences.preferred_language
+        },
         
-        // Expert assigné
-        assigned_expert_id: expertId,
-        expert_approach: expertConfig.approach,
-        gemini_voice_id: expertConfig.voice_id,
-        
-        // Structure programme
-        total_planned_sessions: adaptedDuration.total_sessions,
-        program_duration_weeks: adaptedDuration.duration_weeks,
-        session_frequency_per_week: adaptedDuration.frequency_per_week,
-        
-        // Objectifs
-        personal_goals: userPreferences.personal_goals,
-        success_definition: userPreferences.success_definition,
-        
-        // Contexte
-        cultural_context: userPreferences.cultural_context,
-        preferred_language: userPreferences.preferred_language,
-        
-        // Métriques initiales
-        initial_assessment_scores: assessmentResult.initial_scores,
-        current_scores: assessmentResult.initial_scores,
-        improvement_percentage: 0,
-        
-        // Planification première session
-        next_session_scheduled: this.calculateNextSessionDate(new Date(), 1)
+        // Données de personnalisation dans le JSON
+        personalization_data: {
+          // Diagnostic
+          primary_diagnosis: assessmentResult.primary_diagnosis,
+          secondary_diagnoses: assessmentResult.secondary_diagnoses,
+          
+          // Profil utilisateur
+          personality_profile: assessmentResult.personality_profile,
+          risk_factors: assessmentResult.risk_factors,
+          protective_factors: assessmentResult.protective_factors,
+          motivation_level: assessmentResult.personality_profile.motivation || 7,
+          availability_per_week: userPreferences.availability_per_week,
+          
+          // Objectifs
+          personal_goals: userPreferences.personal_goals,
+          success_definition: userPreferences.success_definition,
+          
+          // Métriques initiales
+          initial_assessment_scores: assessmentResult.initial_scores,
+          current_scores: assessmentResult.initial_scores,
+          improvement_percentage: 0,
+          
+          // Planification
+          next_session_scheduled: this.calculateNextSessionDate(new Date(), 1)
+        }
       };
       
+      console.log('🔧 Tentative de création du programme avec les données:', {
+        user_id: programData.user_id,
+        name: programData.name,
+        program_type: programData.program_type
+      });
+
       const { data, error } = await supabase
         .from('therapy_programs')
         .insert([programData])
         .select()
         .single();
         
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erreur SQL lors de la création du programme:', error);
+        console.error('📋 Données qui ont causé l\'erreur:', programData);
+        throw error;
+      }
+      
+      console.log('✅ Programme thérapeutique créé avec succès:', data?.id);
       
       // 4. Créer les sessions planifiées initiales
-      await this.createInitialSessionPlan(data.id, adaptedDuration.total_sessions);
+      await this.createInitialSessionPlan(data.id, userId, adaptedDuration.total_sessions);
       
       return data as TherapyProgram;
       
@@ -189,7 +210,7 @@ export class TherapyProgramManager {
         .from('therapy_programs')
         .select('*')
         .eq('user_id', userId)
-        .eq('program_status', 'active')
+        .eq('status', 'active')
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
@@ -375,12 +396,12 @@ export class TherapyProgramManager {
    */
   async updateProgramStatus(
     programId: string, 
-    newStatus: TherapyProgram['program_status'],
+    newStatus: TherapyProgram['status'],
     reason?: string
   ): Promise<void> {
     try {
       const updateData: any = {
-        program_status: newStatus,
+        status: newStatus,
         updated_at: new Date().toISOString()
       };
       
@@ -487,6 +508,23 @@ export class TherapyProgramManager {
     return nameMap[diagnosis] || `Programme Thérapeutique - ${diagnosis}`;
   }
   
+  private mapDiagnosisToType(diagnosis: string): string {
+    // Mapper les diagnostics vers les types de programme supportés par la DB
+    const typeMap: Record<string, string> = {
+      'Anxiété sociale': 'anxiety',
+      'Anxiété généralisée': 'anxiety', 
+      'Dépression': 'depression',
+      'Estime de soi': 'depression', // Proche de la dépression
+      'Stress': 'stress',
+      'Troubles du sommeil': 'sleep',
+      'Addictions': 'addiction',
+      'Traumatisme': 'trauma',
+      'Relations': 'relationships'
+    };
+    
+    return typeMap[diagnosis] || 'custom';
+  }
+  
   private calculateNextSessionDate(fromDate: Date, sessionNumber: number): string {
     // Pour les premières sessions, programmer dans les 2-3 jours
     const daysToAdd = sessionNumber <= 2 ? 2 : 7;
@@ -495,9 +533,51 @@ export class TherapyProgramManager {
     return nextDate.toISOString();
   }
   
-  private async createInitialSessionPlan(programId: string, totalSessions: number): Promise<void> {
-    // Créer les sessions planifiées initiales
-    // Sera implémenté avec SessionManager
+  private async createInitialSessionPlan(programId: string, userId: string, totalSessions: number): Promise<void> {
+    try {
+      // Créer les sessions planifiées initiales
+      const sessions = [];
+      const currentDate = new Date();
+      
+      for (let i = 1; i <= Math.min(totalSessions, 3); i++) {
+        // Calculer date de la session (une session par semaine)
+        const sessionDate = new Date(currentDate);
+        sessionDate.setDate(currentDate.getDate() + (i - 1) * 7);
+        
+        sessions.push({
+          therapy_program_id: programId,
+          user_id: userId,
+          session_number: i,
+          session_type: this.getSessionTypeByNumber(i),
+          status: 'scheduled' as const,
+          scheduled_for: sessionDate.toISOString(),
+          duration_minutes: 25
+        });
+      }
+      
+      if (sessions.length > 0) {
+        const { error } = await supabase
+          .from('therapy_sessions')
+          .insert(sessions);
+        
+        if (error) {
+          console.warn('Attention: Impossible de créer les sessions initiales:', error.message);
+          // Ne pas faire échouer la création du programme pour cela
+        }
+      }
+    } catch (error) {
+      console.warn('Attention: Erreur création sessions initiales:', error);
+      // Ne pas faire échouer la création du programme pour cela
+    }
+  }
+  
+  private getSessionTypeByNumber(sessionNumber: number): string {
+    switch (sessionNumber) {
+      case 1: return 'initial_assessment';
+      case 2: return 'therapeutic_exploration';
+      case 3: return 'skill_building';
+      default: return 'therapeutic_session';
+    }
   }
   
   private async getProgram(programId: string): Promise<TherapyProgram | null> {
@@ -578,22 +658,23 @@ export class TherapyProgramManager {
   private async calculateAttendanceRate(programId: string): Promise<number> {
     const { data: sessions } = await supabase
       .from('therapy_sessions')
-      .select('session_status')
+      .select('status')
       .eq('therapy_program_id', programId);
     
     if (!sessions?.length) return 0;
-    const attended = sessions.filter(s => s.session_status === 'completed').length;
+    const attended = sessions.filter(s => s.status === 'completed').length;
     return Math.round(attended / sessions.length * 100);
   }
   
   private async calculateHomeworkCompletionRate(programId: string): Promise<number> {
+    // Get homework through therapy sessions since homework_assignments may not have therapy_program_id
     const { data: homework } = await supabase
       .from('homework_assignments')
-      .select('completion_status')
-      .eq('therapy_program_id', programId);
+      .select('completed, therapy_sessions!inner(therapy_program_id)')
+      .eq('therapy_sessions.therapy_program_id', programId);
     
     if (!homework?.length) return 0;
-    const completed = homework.filter(h => h.completion_status === 'completed').length;
+    const completed = homework.filter(h => h.completed === true).length;
     return Math.round(completed / homework.length * 100);
   }
   
@@ -642,7 +723,7 @@ export class TherapyProgramManager {
   
   private async handleStatusChange(
     programId: string, 
-    newStatus: TherapyProgram['program_status'],
+    newStatus: TherapyProgram['status'],
     reason?: string
   ): Promise<void> {
     // Actions spécifiques selon le changement de statut
@@ -665,17 +746,17 @@ export class TherapyProgramManager {
       const [sessionsData, homeworkData] = await Promise.all([
         supabase
           .from('therapy_sessions')
-          .select('session_status')
+          .select('status')
           .eq('therapy_program_id', programId),
         supabase
           .from('homework_assignments')
-          .select('completion_status')
+          .select('completed')
           .eq('therapy_program_id', programId)
       ]);
 
-      const completedSessions = sessionsData.data?.filter(s => s.session_status === 'completed').length || 0;
+      const completedSessions = sessionsData.data?.filter(s => s.status === 'completed').length || 0;
       const totalSessions = sessionsData.data?.length || 0;
-      const completedHomework = homeworkData.data?.filter(h => h.completion_status === 'completed').length || 0;
+      const completedHomework = homeworkData.data?.filter(h => h.completed === true).length || 0;
       const totalHomework = homeworkData.data?.length || 0;
 
       return {

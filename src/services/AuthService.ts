@@ -1,16 +1,5 @@
-import { supabase } from '../config/supabase';
+import { supabase, UserProfile } from '../config/supabase';
 import type { Session, User } from '@supabase/supabase-js';
-
-export interface UserProfile {
-  id: string;
-  email: string;
-  full_name?: string;
-  preferred_ai_model: 'gemini' | 'openai' | 'auto';
-  preferred_mode: 'text' | 'voice' | 'hybrid';
-  created_at: string;
-  total_sessions: number;
-  subscription_type: 'free' | 'standard' | 'premium';
-}
 
 export class AuthService {
   async signUp(email: string, password: string, fullName?: string) {
@@ -113,9 +102,7 @@ export class AuthService {
         email: email,
         full_name: fullName || '',
         preferred_ai_model: 'auto' as const,
-        preferred_mode: 'text' as const,
-        subscription_type: 'free' as const,
-        total_sessions: 0
+        preferred_mode: 'text' as const
       };
 
       const { data, error } = await supabase
